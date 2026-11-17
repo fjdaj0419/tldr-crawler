@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# 编辑器 / IDE
+.vscode/
+.idea/
+*.swp
+
+# 开发缓存与备份
+*.bak
+*.log
+node_modules/
+
+# 工作区内部数据（非扩展代码）
+.workbuddy/
+.learnings/

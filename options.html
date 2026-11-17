@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>TL;DR Crawler · 设置</title>
+<style>
+  :root {
+    --bg: #0e1013;
+    --card: #16181c;
+    --line: #2a2e35;
+    --text: #e8eaed;
+    --muted: #8b919b;
+    --yellow: #ffd166;
+    --pink: #ff6ea9;
+    --blue: #5ab8ff;
+    --teal: #32b8ae;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(900px 500px at 15% -10%, rgba(90, 184, 255, .10), transparent 60%),
+      radial-gradient(700px 400px at 100% 0%, rgba(255, 110, 169, .07), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 56px 20px 80px;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  .spider {
+    width: 46px; height: 46px; opacity: .9;
+    filter: drop-shadow(0 0 12px rgba(90, 184, 255, .35));
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: 22px; letter-spacing: .5px; margin: 0 0 6px;
+    font-weight: 650;
+  }
+  h1 em { font-style: normal; color: var(--yellow); }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 13px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  }
+  label {
+    display: block;
+    font-size: 12px;
+    letter-spacing: .4px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .field { margin-bottom: 20px; }
+  .field:last-of-type { margin-bottom: 12px; }
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    padding: 11px 13px;
+    border-radius: 9px;
+    border: 1px solid var(--line);
+    background: #0f1115;
+    color: var(--text);
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    outline: none;
+    transition: border-color .18s, box-shadow .18s;
+  }
+  input:focus {
+    border-color: rgba(90, 184, 255, .65);
+    box-shadow: 0 0 0 3px rgba(90, 184, 255, .12);
+  }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 7px; }
+  .hint b { color: #cfd4dc; font-weight: 600; }
+  .hint a { color: var(--blue); text-decoration: none; }
+  .hint a:hover { text-decoration: underline; }
+
+  /* 引擎切换 */
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .seg-btn {
+    appearance: none;
+    text-align: left;
+    padding: 11px 13px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: #0f1115;
+    color: var(--muted);
+    cursor: pointer;
+    transition: border-color .18s, background .18s, color .18s, box-shadow .18s;
+  }
+  .seg-btn b { display: block; font-size: 13.5px; font-weight: 650; color: inherit; letter-spacing: .2px; }
+  .seg-btn span { display: block; font-size: 11.5px; margin-top: 3px; opacity: .8; }
+  .seg-btn:hover { border-color: #3a4049; color: #cfd4dc; }
+  .seg-btn.active {
+    border-color: rgba(90, 184, 255, .55);
+    background: linear-gradient(180deg, rgba(90, 184, 255, .14), rgba(90, 184, 255, .04));
+    color: #d7ecff;
+    box-shadow: 0 0 0 3px rgba(90, 184, 255, .08);
+  }
+  .seg-btn[data-provider="deepseek"].active {
+    border-color: rgba(50, 184, 174, .55);
+    background: linear-gradient(180deg, rgba(50, 184, 174, .16), rgba(50, 184, 174, .04));
+    color: #c9f5f0;
+    box-shadow: 0 0 0 3px rgba(50, 184, 174, .09);
+  }
+
+  .row { display: flex; align-items: center; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  button.act {
+    appearance: none;
+    border: 1px solid rgba(90, 184, 255, .4);
+    background: linear-gradient(180deg, rgba(90, 184, 255, .18), rgba(90, 184, 255, .07));
+    color: #d7ecff;
+    padding: 10px 20px;
+    border-radius: 9px;
+    font: 600 13px/1 inherit;
+    letter-spacing: .3px;
+    cursor: pointer;
+    transition: transform .12s, background .18s, border-color .18s;
+  }
+  button.act:hover { background: rgba(90, 184, 255, .24); border-color: rgba(90, 184, 255, .7); }
+  button.act:active { transform: translateY(1px); }
+  button.act.ghost {
+    border-color: var(--line);
+    background: transparent;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  button.act.ghost:hover { color: var(--text); background: rgba(255, 255, 255, .04); }
+
+  #status {
+    margin-top: 14px;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--blue);
+    min-height: 1px;
+    opacity: 0;
+    transition: opacity .25s;
+    word-break: break-word;
+  }
+  #status.show { opacity: 1; }
+  #status.err { color: var(--pink); }
+  #status.ok { color: var(--teal); }
+
+  .steps {
+    margin: 30px 0 0;
+    padding: 18px 20px;
+    border-radius: 12px;
+    border: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.9;
+  }
+  .steps b { color: var(--text); font-weight: 600; }
+  kbd {
+    background: #0f1115;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    padding: 1px 6px;
+    font: 11.5px/1.5 ui-monospace, Menlo, monospace;
+    color: #cfd4dc;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <img class="spider" id="spider" src="icon128.png" alt="">
+  <h1>TL;DR <em>Crawler</em></h1>
+  <p class="sub">接上 DeepSeek 或 Claude 后，摘要会交给模型重写；不填也能用，本地摘要照常工作。</p>
+
+  <div class="card">
+    <div class="field">
+      <label>总结引擎</label>
+      <div class="seg" id="seg">
+        <button type="button" class="seg-btn" data-provider="deepseek">
+          <b>DeepSeek</b><span>国内直连 · 便宜快</span>
+        </button>
+        <button type="button" class="seg-btn" data-provider="anthropic">
+          <b>Claude</b><span>Anthropic 官方</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- DeepSeek -->
+    <div data-pane="deepseek">
+      <div class="field">
+        <label for="deepseekKey">DeepSeek API Key</label>
+        <input id="deepseekKey" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
+        <div class="hint">只保存在本机 <b>chrome.storage.local</b>，请求由后台脚本发起，不会出现在网页里。<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">获取 Key →</a></div>
+      </div>
+      <div class="field">
+        <label for="deepseekModel">模型</label>
+        <input id="deepseekModel" type="text" placeholder="deepseek-flash" autocomplete="off" spellcheck="false">
+        <div class="hint">默认 <b>deepseek-flash</b>（快、便宜，摘要够用）；想更强可填 <b>deepseek-v4-pro</b>。留空即用默认。</div>
+      </div>
+    </div>
+
+    <!-- Claude -->
+    <div data-pane="anthropic" hidden>
+      <div class="field">
+        <label for="apiKey">Anthropic API Key</label>
+        <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+        <div class="hint">只保存在本机 <b>chrome.storage.local</b>，请求由后台脚本发起，不会出现在网页里。<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">获取 Key →</a></div>
+      </div>
+      <div class="field">
+        <label for="model">模型</label>
+        <input id="model" type="text" placeholder="claude-sonnet-4-5" autocomplete="off" spellcheck="false">
+        <div class="hint">留空则使用默认值 <b>claude-sonnet-4-5</b>。</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="save" class="act">保存设置</button>
+      <button id="test" class="act ghost">测试连接</button>
+      <button id="clear" class="act ghost">清除此 Key</button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div class="steps">
+    <b>怎么用：</b><br>
+    1. 选引擎、填 Key，点「测试连接」确认能通，再保存<br>
+    2. 打开任意普通网页（新闻、博客、文档都行）<br>
+    3. 点工具栏上的蜘蛛图标 → 它出现并跟着鼠标爬，读到关键句就高亮并在右上角记一条<br>
+    4. 面板底部两个按钮：<b>复制 TL;DR</b> / <b>用模型写 TL;DR</b><br>
+    5. 再点一次图标 → 蜘蛛消失，网页恢复原状
+  </div>
+</div>
+<script src="options.js"></script>
+</body>
+</html>
