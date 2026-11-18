@@ -358,7 +358,28 @@ function parseStructured(text) {
   const a = s.indexOf('{'), b = s.lastIndexOf('}');
   if (a === -1 || b <= a) return null;
   let obj = null;
-  try { obj = JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
+  const body = s.slice(a, b + 1);
+  try {
+    obj = JSON.parse(body);
+  } catch (e) {
+    /* 宽松修复：模型常犯的两类小错——数组/对象尾部多一个逗号、
+       用中文引号当字符串引号。修一次再试，别因为一个逗号整张网都不长。 */
+    try {
+      obj = JSON.parse(body.replace(/,\s*([}\]])/g, '$1'));
+    } catch (e2) {
+      try {
+        obj = JSON.parse(
+          body
+            .replace(/[“”]/g, '"')
+            .replace(/[‘’]/g, "'")
+            .replace(/,\s*([}\]])/g, '$1')
+            /* 模型常把 kw 的值写成不带引号的中文：`"kw": 营收增长,`
+               只针对 kw 这一个字段补引号，别动其他字段 */
+            .replace(/"kw"\s*:\s*([^",}\]\s][^",}\]]*?)(?=\s*[,}\]])/g, '"kw":"$1"')
+        );
+      } catch (e3) { return null; }
+    }
+  }
   if (!obj || !Array.isArray(obj.items)) return null;
 
   const items = [];
@@ -374,6 +395,10 @@ function parseStructured(text) {
     items.push({
       id: id,
       short: short,
+      /* kw：2–6 字关键词，只给「词飞入」动效用；模型没给就留空，前端用正则兜底 */
+      kw: typeof it.kw === 'string'
+        ? it.kw.replace(/[\s"'“”「」『』《》、，。；：!?！？…·]/g, '').trim().slice(0, 6)
+        : '',
       branch: (String(it.branch || '').trim().slice(0, 8)) || '其他',
       type: WEB_TYPE_KEYS.indexOf(it.type) !== -1 ? it.type : 'quote'
     });
@@ -413,25 +438,27 @@ async function summarizeBatch(sentences) {
 
   const prompt = [
     '你是网页摘要引擎。输入是一篇文章里摘出的关键句（JSON 数组，每项有 id 和 text）。',
-    '为每一句产出三个字段：',
+    '为每一句产出四个字段：',
     '1. short：极短摘要。最多 9 个单词（中文最多 14 个字）；保留原文的数字、人名、公司名，数字必须与原文完全一致，不得改写、不得四舍五入；不得夸大、不得推断；',
     '2. branch：这句话所属的话题枝。用 2-4 个字的通用话题词命名（例：产能 / 竞争 / 风险 / 时间 / 影响 / 背景）。讲同一件事的句子必须用完全相同的枝名——枝名要稳定、通用，不要每次发明新说法；',
     '3. type：这句话在干什么，只从这 8 个里选一个：',
     '   concl=中心结论或主张 / data=数字或规模 / fact=事实或事件 / view=观点或评价 / risk=冲突或风险 / time=时间或进度 / cause=原因或机制 / quote=引语（实在判不出才用它）。',
+    '4. kw：每句再给一个 2-6 字的关键词，用于动效展示。优先取原文里的名词、术语、数字或专有名词；不要整句、不要包含标点。kw 的值是一个普通 JSON 字符串，照常带双引号。',
     '另外输出两个字段：',
     'topic：整篇文章的主题，8-14 个字；',
     'links：可选，0-3 组最值得画出来的跨枝关联，格式 [[句子id, 句子id], ...]，只挑明确的因果或对比关系，没有就给空数组。',
     '硬性要求：',
-    '- 所有输出（short / topic / branch）必须全部用简体中文，即使原文是英文也要翻译成中文；数字、人名、公司名、专有名词保留原文写法；',
+    '- 所有输出（short / kw / topic / branch）必须全部用简体中文，即使原文是英文也要翻译成中文；数字、人名、公司名、专有名词保留原文写法；',
     '- id 必须原样返回输入里的数字，不要改成字符串、不要重新编号；',
     '- 严格按输入的 id 返回；只输出一个 JSON 对象，不要任何解释、不要 Markdown 代码块。形如：',
-    '{"topic":"…","items":[{"id":1,"short":"…","branch":"…","type":"…"}],"links":[[1,5]]}',
+    '{"topic":"…","items":[{"id":1,"short":"…","kw":"…","branch":"…","type":"…"}],"links":[[1,5]]}',
     '',
     '输入：',
     JSON.stringify(list, null, 0)
   ].join('\n');
 
-  const r = await callModel(prompt, 3000);
+  /* 多了一个 kw 字段，输出变长：给足余量，避免长文被截断成非法 JSON */
+  const r = await callModel(prompt, 4000);
   if (!r.ok) return r;
 
   const web = parseStructured(r.text);

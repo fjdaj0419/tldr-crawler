@@ -1658,6 +1658,9 @@
       this.spider = null;
       this.feet = [];
       this.ripples = [];
+      this.flyers = [];                 // 关键词飞入蛛网的飞行物（canvas 绘制）
+      this.firstWeaveDone = false;      // 首次织网是否已完成：首次用整体动画，之后用「飞入」
+      this.onWebSids = new Set();       // 上一轮已在网上的句子 id，用来判断「本轮新增」
       this.motionScale = 1;
       this.stepScale = 1;
       this.glowT = 0;
@@ -1714,6 +1717,8 @@
       this.pendingApi = [];
       this.toastTimer = 0;
       this.aiBadgeTimer = 0;
+      this.aiDiag = '';                 // 最近一次「AI 没把要点挂上网」的原因，显示在空网提示里
+      this.aiDiagAt = 0;
 
       /* 绑定的事件（统一注销） */
       this.bound = [];
@@ -1866,6 +1871,25 @@
         }
         this.blockSeen.add(el);
         out.push(el);
+      }
+
+      /* 兜底：邮件、文档、后台系统这类页面，正文全在 div/section/td 里，
+         一个 p/li/blockquote 都没有，标准选择器会一块都收不到（表现为 0 / 0）。
+         这时退一步，把「只含文本、不再套块级容器」的叶子 div 也当段落。 */
+      if (out.length < 3) {
+        const loose = root.querySelectorAll('div, section, td');
+        for (let i = 0; i < loose.length; i++) {
+          const el = loose[i];
+          if (this.blockSeen.has(el)) continue;
+          if (!isVisible(el)) continue;
+          if (hasBadAncestor(el, root.parentElement)) continue;
+          /* 只要叶子：内部还套着块级容器的，留给更内层去收，避免整篇被当一段 */
+          if (el.querySelector('p, li, blockquote, div, section, td, table')) continue;
+          const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+          if (text.length < CFG.MIN_SENTENCE) continue;
+          this.blockSeen.add(el);
+          out.push(el);
+        }
       }
       return out;
     }
@@ -2761,12 +2785,17 @@
       const canvasHl = this.highlightMode === 'canvas';
 
       const body = this.spider;
+      const sx = window.scrollX, sy = window.scrollY;
       if (!body) {
         if (canvasHl) this.drawFallbackHighlights(ctx);
+        /* 蜘蛛还没建好也要画飞行的关键词，否则词飞到一半会消失 */
+        ctx.save();
+        ctx.translate(-sx, -sy);
+        this.drawFlyers(ctx);
+        ctx.restore();
         return;
       }
 
-      const sx = window.scrollX, sy = window.scrollY;
       ctx.save();
       ctx.translate(-sx, -sy);   // 之后一律用页面坐标画
       this.drawSpider(ctx, body, canvasHl ? () => {
@@ -2787,7 +2816,199 @@
         ctx.lineWidth = 1.4;
         ctx.stroke();
       }
+
+      /* 关键词飞入：和蜘蛛同一层（页面坐标），压在涟漪之上 */
+      this.drawFlyers(ctx);
       ctx.restore();
+    }
+
+    /* =====================================================================
+     * §8.5 关键词飞入蛛网
+     * AI 返回、胶囊长出来后，从原文那句的位置拉一根蛛丝，把抽出的关键词
+     * 送到胶囊上方停一下再淡出。纯视觉强调，不动网上的数据和布局。
+     * ================================================================== */
+
+    /* 从关键句里抽一个 2–6 字关键词（纯正则启发式，只服务视觉，不强求语义完美） */
+    extractKeyword(text) {
+      const s = String(text || '').replace(/\s+/g, ' ').trim();
+      if (!s) return '';
+      let m;
+
+      /* 1) 书名号 / 引号里的话，往往就是核心名词 */
+      m = s.match(/《([^》]{2,6})》/);
+      if (m) return m[1];
+      m = s.match(/[“"「『]([^”"」』]{2,6})[”"」』]/);
+      if (m) return m[1];
+
+      /* 2) 数字 + 单位：12% / 3.5 亿 / 20 万台 —— 有数字时这是最硬的词 */
+      m = s.match(/(\d+(?:\.\d+)?\s*(?:%|％|亿|万|千|倍|个百分点|美元|欧元|元|人|台|家|项|个|年|月|天|小时|分钟|秒))/);
+      if (m) return m[1].replace(/\s+/g, '').slice(0, 6);
+
+      /* 3) 英文专名 / 缩写：GPT-4 / iPhone / EU */
+      m = s.match(/\b([A-Z][A-Za-z0-9.\-]{1,5})\b/);
+      if (m) return m[1];
+
+      /* 4) 术语后缀：利用率 / 破碎化 / 产能 …… 只保留不易误伤的后缀
+            （单个「数/量/比/期/额」太容易在任意句子里误匹配，去掉） */
+      m = s.match(/([\u4e00-\u9fa5]{2,4})(?:率|性|化|型|效应|成本|风险|产能|市场|政策|需求|供给|趋势|结构|机制|模式|能力|水平|规模|周期)/);
+      if (m) return m[0].slice(0, 6);
+
+      /* 5) 兜底：第一个不是「的/了/我们/可以」这类虚词开头的 2–6 字汉字串 */
+      const runs = s.match(/[\u4e00-\u9fa5]{2,6}/g) || [];
+      for (let i = 0; i < runs.length; i++) {
+        if (!/^(的|了|是|在|和|与|也|就|都|而|及|或|对|从|把|被|让|使|这|那|我们|他们|可以|已经|表示|认为|一个|一种|进行|通过|因为|所以|但是|如果|以及|以上|以下|目前|现在|其中|此外|同时)/.test(runs[i])) {
+          return runs[i];
+        }
+      }
+      return '';
+    }
+
+    /* 起点的视口坐标：句子可能滚出屏幕，夹到最近的视口边缘 */
+    startOf(sent) {
+      if (!sent || !sent.range) return null;
+      let rects = null;
+      try { rects = sent.range.getClientRects(); } catch (e) { return null; }
+      if (!rects || !rects.length) return null;
+      const r = rects[0];
+      if (!r || (r.width < 1 && r.height < 1)) return null;
+      let x = r.left + r.width / 2;
+      let y = r.top + r.height / 2;
+      const m = 22;
+      if (x < m) x = m; else if (x > this.vw - m) x = this.vw - m;
+      if (y < m) y = m; else if (y > this.vh - m) y = this.vh - m;
+      return { x: x, y: y };
+    }
+
+    /* 给「本轮新增」的胶囊各派一个飞行的词；silent=true 时只记 id 不飞（首次织网） */
+    spawnKeywords(nodes, silent) {
+      const next = new Set();
+      for (let i = 0; i < nodes.length; i++) next.add(String(nodes[i].id));
+      const prev = this.onWebSids;
+      this.onWebSids = next;
+
+      if (silent || this.prefersReduced || !this.webHost || !this.flyers) return;
+
+      let fired = 0;
+      for (let i = 0; i < nodes.length && fired < 8; i++) {
+        const s = nodes[i];
+        const key = String(s.id);
+        if (prev.has(key)) continue;                    // 上轮就在网上，不再飞
+        const pill = this.webHost.querySelector('.pill[data-sid="' + s.id + '"]');
+        if (!pill) continue;
+        const st = this.startOf(s);
+        if (!st) continue;
+        /* AI 抽的 kw 最准；模型没给（旧缓存 / 解析失败）才用正则兜底 */
+        const kw = (s.web && s.web.kw) || this.extractKeyword(s.text) || String(s.summary || s.text || '').slice(0, 6);
+        if (!kw) continue;
+
+        const r = pill.getBoundingClientRect();
+        if (!r || (r.width < 1 && r.height < 1)) continue;
+        const x1 = r.left + r.width / 2;
+        const y1 = r.top + r.height / 2;
+        const dx = x1 - st.x, dy = y1 - st.y;
+        this.flyers.push({
+          sid: s.id,
+          kw: kw,
+          x0: st.x, y0: st.y,
+          x1: x1, y1: y1,
+          cx: st.x + dx * 0.5,
+          cy: st.y + dy * 0.5 - Math.min(80, Math.abs(dx) * 0.18 + 26),
+          ph: r.height || 16,
+          t: -fired * 0.11,                             // 错峰 110ms，词多也能一个个看清
+          dur: 0.95, hold: 0.85, fade: 0.50             // 飞慢一点、停久一点，别一闪而过
+        });
+        fired++;
+      }
+    }
+
+    /* 重画后胶囊换了新 DOM：让在飞的词改追新位置，别飞到旧位置上 */
+    retargetFlyers() {
+      if (!this.flyers || !this.flyers.length || !this.webHost) return;
+      for (let i = 0; i < this.flyers.length; i++) {
+        const f = this.flyers[i];
+        const pill = this.webHost.querySelector('.pill[data-sid="' + f.sid + '"]');
+        if (!pill) continue;
+        const r = pill.getBoundingClientRect();
+        if (!r || (r.width < 1 && r.height < 1)) continue;
+        f.x1 = r.left + r.width / 2;
+        f.y1 = r.top + r.height / 2;
+        f.ph = r.height || 16;
+        const dx = f.x1 - f.x0, dy = f.y1 - f.y0;
+        f.cx = f.x0 + dx * 0.5;
+        f.cy = f.y0 + dy * 0.5 - Math.min(80, Math.abs(dx) * 0.18 + 26);
+      }
+    }
+
+    updateFlyers(dt) {
+      if (!this.flyers || !this.flyers.length) return;
+      for (let i = this.flyers.length - 1; i >= 0; i--) {
+        const f = this.flyers[i];
+        f.t += dt;
+        if (f.t >= f.dur + f.hold + f.fade) this.flyers.splice(i, 1);
+      }
+    }
+
+    /* 二次贝塞尔求值（弧线像蛛丝自然垂坠，不用直线） */
+    bez(a, b, c, t) {
+      const it = 1 - t;
+      return it * it * a + 2 * it * t * b + t * t * c;
+    }
+
+    /* 在「页面坐标」上下文里画丝和词（render 已 translate(-scrollX,-scrollY)） */
+    drawFlyers(ctx) {
+      if (!this.flyers || !this.flyers.length) return;
+      const sx = window.scrollX, sy = window.scrollY;
+      for (let i = 0; i < this.flyers.length; i++) {
+        const f = this.flyers[i];
+        if (f.t < 0) continue;
+
+        let px, py, alpha = 1, flying = false, e = 1;
+        if (f.t < f.dur) {
+          flying = true;
+          /* 缓入缓出：起手和落点都慢，中段才快——比 easeOut 的「开头猛冲」看得清 */
+          const p = f.t / f.dur;
+          e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+          px = this.bez(f.x0, f.cx, f.x1, e);
+          py = this.bez(f.y0, f.cy, f.y1, e);
+        } else if (f.t < f.dur + f.hold) {
+          px = f.x1;
+          py = f.y1 - f.ph / 2 - 11;                     // 停在胶囊正上方
+        } else {
+          const q = (f.t - f.dur - f.hold) / f.fade;
+          alpha = Math.max(0, 1 - q);
+          px = f.x1;
+          py = f.y1 - f.ph / 2 - 11 - q * 9;             // 淡出时轻轻上飘
+        }
+
+        /* 飞行途中拉一根白丝，到位置就收 */
+        if (flying && e > 0.02) {
+          ctx.beginPath();
+          const steps = 12;
+          for (let k = 0; k <= steps; k++) {
+            const t = e * k / steps;
+            const x = this.bez(f.x0, f.cx, f.x1, t) + sx;
+            const y = this.bez(f.y0, f.cy, f.y1, t) + sy;
+            if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.strokeStyle = 'rgba(255,255,255,' + (0.5 * (1 - e * 0.55)).toFixed(3) + ')';
+          ctx.lineWidth = 1.1;
+          ctx.stroke();
+        }
+
+        /* 词：深色描边 + 金色填充，压在网页上也读得清 */
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.font = '700 13.5px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const tx = px + sx, ty = py + sy;
+        ctx.lineWidth = 3.8;
+        ctx.strokeStyle = 'rgba(9,11,15,.88)';
+        ctx.strokeText(f.kw, tx, ty);
+        ctx.fillStyle = '#ffd166';
+        ctx.fillText(f.kw, tx, ty);
+        ctx.restore();
+      }
     }
 
     drawFallbackHighlights(ctx) {
@@ -3429,6 +3650,10 @@
       const nodes = live.slice(0, this.wide ? MAX_POINTS : WIDE_AT);
       this.webHost.classList.toggle('dense', nodes.length > DENSE_AT);
 
+      /* 首次织网：网里从 0 变出第一批节点算首次，走现有的整体织网动画；
+         之后新增的节点改用「关键词飞入」。restart / clearWeb 会重置这个标志。 */
+      const firstWeave = !this.firstWeaveDone && nodes.length > 0;
+
       /* 织网动画节流：爬取中每批新要点都会重画，但 650ms 内不重复从头播，
          否则动画永远卡在开头那几帧。空网不播（本来就在提示「让我织」）。 */
       const now = Date.now();
@@ -3445,7 +3670,9 @@
           S: sz.S,
           H: sz.H
         });
-        this.paintWebHint(on ? 'wait' : (this.aiAvailable ? 'auto' : 'nokey'));
+        /* 有近期失败原因就别装成「正在织网」，把卡住的那一步直接显示出来 */
+        const diagFresh = this.aiDiag && this.aiDiagAt && (Date.now() - this.aiDiagAt < 30000);
+        this.paintWebHint(diagFresh ? 'err' : (on ? 'wait' : (this.aiAvailable ? 'auto' : 'nokey')));
         return;
       }
       this.paintWebHint('');
@@ -3543,6 +3770,11 @@
         S: sz.S,
         H: sz.H
       });
+
+      /* 胶囊建好、碰撞消解定稿之后才能读坐标：首次不飞，之后新增的飞 */
+      if (firstWeave) this.firstWeaveDone = true;
+      this.spawnKeywords(nodes, firstWeave);
+      this.retargetFlyers();
     }
 
     paintWebHint(kind) {
@@ -3550,6 +3782,15 @@
       if (!el) return;
       if (!kind) { el.hidden = true; el.textContent = ''; return; }
       el.hidden = false;
+      if (kind === 'err') {
+        /* 用纯文本拼，不把模型/网络返回的内容当 HTML 解析 */
+        el.textContent = '';
+        const b = document.createElement('b');
+        b.textContent = '要点没挂上网';
+        el.appendChild(b);
+        el.appendChild(document.createTextNode('：' + (this.aiDiag || '未知原因')));
+        return;
+      }
       let html = '';
       if (kind === 'nokey') html = '<b>还没连上 AI</b>先填 Key，蜘蛛才能织网';
       else if (kind === 'auto') html = '<b>切到「AI 总结」</b>蜘蛛就开始织网';
@@ -3639,12 +3880,18 @@
       card.hidden = false;
       pill.classList.add('on');
 
+      /* 先把内容填进去，再量高度定位。
+         空卡片量出来的高度只有几十像素，会把 top 算到网区外，
+         等文本填满后卡片撑高、按钮就跑到框外去了。 */
+      this.paintPlainCard();
+
       /* 定位：贴在标题下方，放不下翻上方，左右夹在网内 */
       const cw = Math.min(this.wide ? 340 : 300, Math.max(200, wrap.clientWidth - 8));
       card.style.width = cw + 'px';
       const pr = pill.getBoundingClientRect();
       const wr = wrap.getBoundingClientRect();
-      const ch = card.offsetHeight || 240;
+      /* 卡片最高不可能超过网框，量出来超了就按网框算，保证一定放得下 */
+      const ch = Math.min(card.offsetHeight || 240, Math.max(120, wr.height - 8));
       let left = (pr.left - wr.left) + pr.width / 2 - cw / 2;
       left = Math.min(Math.max(left, 4), Math.max(4, wr.width - cw - 4));
       let top = (pr.top - wr.top) + pr.height + 6;
@@ -3653,7 +3900,6 @@
       card.style.left = left + 'px';
       card.style.top = top + 'px';
 
-      this.paintPlainCard();
       /* 点开就要看到内容：没缓存就当场生成，不用再点第二下按钮 */
       if (!this.plainCache) this.loadPlain();
     }
@@ -4204,7 +4450,12 @@
           if (gen !== this.webGen) return;   // 中途点了「重新启动」：这批结果早已作废，不许挂网
           if (chrome.runtime.lastError || !res || !res.ok || !Array.isArray(res.summaries)) {
             // 失败就保留本地 fallback，只在面板上轻轻提示一下（带上原因）
-            this.showAiBadge(chrome.runtime.lastError ? '后台脚本没响应' : this.aiErrorText(res));
+            const le = chrome.runtime.lastError;
+            const why = le ? ('后台脚本没响应' + (le.message ? '：' + le.message : '')) : this.aiErrorText(res);
+            this.showAiBadge(le ? '后台脚本没响应' : this.aiErrorText(res));
+            this.aiDiag = why;
+            this.aiDiagAt = Date.now();
+            this.rebuildWeb(0);
           } else {
             for (let i = 0; i < batch.length; i++) {
               const s = batch[i];
@@ -4226,7 +4477,7 @@
                 const s = batch[i];
                 const it = byId[String(s.id)];
                 if (!it || !it.branch) continue;
-                s.web = { branch: it.branch, type: it.type || 'quote' };
+                s.web = { branch: it.branch, type: it.type || 'quote', kw: it.kw || '' };
                 grown++;
               }
               if (!this.webTopic && res.web.topic) this.webTopic = String(res.web.topic).trim();
@@ -4243,7 +4494,21 @@
                   if (!dup) this.webChords.push([c[0], c[1]]);
                 }
               }
-              if (grown) this.rebuildWeb(200);
+              if (grown) {
+                this.aiDiag = '';
+                this.aiDiagAt = 0;
+                this.rebuildWeb(200);
+              } else {
+                this.aiDiag = 'AI 返回的要点对不上原文句子';
+                this.aiDiagAt = Date.now();
+                this.rebuildWeb(0);
+              }
+            } else {
+              /* 结构化失败时后端会退回纯摘要数组：列表有摘要，但网不长。
+                 这不该伪装成「正在织网」，把真实原因摆出来。 */
+              this.aiDiag = 'AI 只返回了摘要，没给图谱结构';
+              this.aiDiagAt = Date.now();
+              this.rebuildWeb(0);
             }
           }
           if (this.pendingApi.length) {
@@ -4320,6 +4585,7 @@
         if (guard >= 10) this.acc = 0;
 
         this.updateRipples(dt);
+        this.updateFlyers(dt);
         this.render();
       };
       this.raf = requestAnimationFrame(frame);
@@ -4430,6 +4696,9 @@
       this.webChords = [];
       this.webHovered = null;
       this.lastWeaveAt = 0;               // 新一轮织网可以重新播动画
+      this.firstWeaveDone = false;        // 清网后重新织，第一批又按「首次」走整体动画
+      this.onWebSids = new Set();
+      this.flyers = [];
       this.autoWide = false;
       this.wideOptOut = false;
       this.plainCache = null;             // 重启即清缓存，别拿旧文章的总结给新文章看

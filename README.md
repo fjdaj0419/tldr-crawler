@@ -1,114 +1,145 @@
 # TL;DR Crawler
 
-> 一只会爬行的蜘蛛，跟随你的光标阅读网页，高亮关键句，并把要点织成一张 TL;DR 蛛网。
+**English** · [简体中文](README.zh-CN.md)
 
-[![version](https://img.shields.io/badge/version-2.3.1-brightgreen.svg)](manifest.json)
+> A spider that crawls across the page as you read, highlights the key sentences, and weaves them into a TL;DR web with AI.
+
+[![version](https://img.shields.io/badge/version-2.3.6-brightgreen.svg)](manifest.json)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4.svg)](https://developer.chrome.com/docs/extensions/develop)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-一个纯 JavaScript、零第三方依赖的 Chrome 扩展。点一下图标，蜘蛛就会从当前光标位置出发在页面上爬行，把一段段关键句高亮出来；再交给大模型（DeepSeek 或 Claude）提炼成中文要点，实时挂到一张会生长的蛛网图谱上。点蛛网上的任意节点，可以直接展开原文、定位到页面对应句子。
+A Chrome extension written in plain JavaScript with **zero third-party dependencies**. Click the toolbar icon and a spider starts crawling across the page from your cursor, highlighting key sentences one by one. Those sentences are handed to an LLM (DeepSeek or Claude), condensed into short Chinese takeaways, and attached in real time to a spider-web map that grows as you read. Click any node on the web to expand the original sentence or jump straight to it.
 
-## 预览
+> **Note:** the extension UI and all AI-generated text are in Simplified Chinese.
 
-**爬行高亮 + TL;DR 要点面板**
+## Preview
 
-![扩展运行效果](screenshots/preview.png)
+**Crawling, highlighting, and the TL;DR panel**
 
-**蛛网图谱设计**
+![Extension in action](screenshots/preview.png)
 
-要点不是干巴巴的列表，而是按语义聚成枝、用白色蛛丝连成的网；颜色只落在末端节点上，表示内容的说话方式（结论、数据、引语……）。
+**The spider-web map**
 
-![蛛网图谱概念图](screenshots/web-map-concept.png)
+Takeaways are not a flat list. They are grouped into branches by meaning and connected with white silk; colour appears only on the tips of the nodes and encodes *how* a sentence speaks (conclusion, data, quote, …).
 
-**蜘蛛造型**（参考图逐像素复刻，canvas 矢量绘制 + 程序化 IK 步态）
+![Spider-web map concept](screenshots/web-map-concept.png)
 
-![蜘蛛造型对比](screenshots/spider-compare.png)
+**The spider itself** — redrawn as vectors from a reference image, with procedural IK legs
 
-## 特性
+![Spider build comparison](screenshots/spider-compare.png)
 
-- 🕷️ **蜘蛛跟随光标爬行**：canvas 矢量蜘蛛 + IK 步态，金属银质感，悬停在关键句上会自动高亮原文。
-- 🕸️ **会生长的蛛网图谱**：AI 每批返回要点，网就长出新节点；白丝骨架 + 类型色末端，空网时越空装饰丝越密；分批织网带渐进抽出动画（丝从中心抽出、胶囊由内而外弹出，带节流与减弱动画兜底）。
-- 🧠 **双引擎摘要**：支持 DeepSeek 与 Anthropic Claude，设置页可切换、可测连接，强制输出简体中文。
-- 💬 **大白话全文总结**：点蛛网中心的标题，基于已抓关键句生成一段 150–250 字的中文白话总结；按需调用、本次会话缓存，内容更新时会提示重讲。
-- 📌 **节点详情卡**：点蛛网胶囊展开类型 / 所属枝 / 中文摘要 / 原文全句，一键定位原文或复制。
-- 🌫️ **悬停即透明**：鼠标压在面板上时底板与蛛丝自动淡化为半透明，方便对照后面的原文；所有按钮、列表、详情卡保持清晰不褪。
-- ⚡ **纯原生实现**：Manifest V3，纯 JS 无构建、无第三方库，Shadow DOM 隔离不干扰宿主页面。
-- 🔍 **原文列表兜底**：折叠区保留逐句原文与本地摘要，AI 不可用时仍可阅读。
+## Features
 
-## 安装
+- 🕷️ **Cursor-following spider** — canvas-drawn, procedural IK legs, metallic silver finish. Hovering a key sentence highlights it on the page.
+- 🕸️ **Living spider web** — each batch of AI results grows new nodes. White silk skeleton, colour only on the tips, denser decoration silk when the web is empty. A progressive weaving animation draws the silk outward and pops the capsules in.
+- 💬 **Keyword flight** — when the AI returns an item, a 2–6 character keyword travels along a Bézier silk thread from the source sentence to its capsule, rests above it for a moment, then fades out. If the model omits the keyword, a regex extractor takes over.
+- 📖 **Plain-language summary** — click the hub to have the captured sentences retold as one plain Chinese paragraph. Generated on demand and cached for the session.
+- 🧠 **Dual engines** — DeepSeek or Anthropic Claude, switchable in the options page with a built-in connection test.
+- 📌 **Node detail card** — click a capsule to see its type, branch, short summary and the full source sentence; locate or copy it in one click.
+- 🌫️ **Hover transparency** — while the pointer is over the panel, the backdrop and the silk fade to a translucent state so you can read the page underneath. Buttons and lists stay fully opaque.
+- 🩺 **Honest failures** — if the AI call fails, the empty web prints the actual reason (invalid key, insufficient balance, malformed response, missing structured data) instead of spinning forever.
+- 📄 **Broad page support** — beyond `p` / `li` / `blockquote`, a leaf-`div` fallback lets it read mail clients, docs and admin pages whose text lives entirely in `div` / `section` / `td`.
+- ⚡ **Pure vanilla** — Manifest V3, no build step, no libraries, Shadow DOM isolation so the host page is never polluted.
+- 🔍 **Fallback list** — a collapsible list keeps every captured sentence with a local summary, readable even without an API key.
 
-### 从源码加载（开发者模式）
+## Install
 
-1. 克隆或下载本仓库：
+### From source (developer mode)
+
+1. Clone the repository:
    ```bash
    git clone https://github.com/fjdaj0419/tldr-crawler.git
    ```
-2. 打开 Chrome，在地址栏输入 `chrome://extensions`。
-3. 打开右上角的 **开发者模式**。
-4. 点击 **加载已解压的扩展程序**，选择仓库根目录（含 `manifest.json` 的那一层）。
-5. 工具栏出现蜘蛛图标即安装成功。点图标启动 / 关闭。
+2. Open `chrome://extensions` in Chrome.
+3. Turn on **Developer mode** (top right).
+4. Click **Load unpacked** and select the repository root (the folder containing `manifest.json`).
+5. The spider icon appears in the toolbar. Click it to start or stop.
 
-> ⚠️ 扩展根目录下不要放以 `_` 开头的文件或文件夹（如 `_backup`），Chrome 会拒绝加载。
+> ⚠️ Do not put files or folders starting with `_` in the extension root — Chrome reserves that prefix (e.g. `_locales`) and will refuse to load the extension.
 
-## 使用
+## Usage
 
-1. （可选）点工具栏图标旁的三点菜单 → **选项**，填入 API Key，选择总结引擎并测试连接。
-2. 打开任意一篇长文，移动光标，蜘蛛会爬向关键句并把它们高亮成金色。
-3. 右上角面板实时显示 `已踩到 / 总数`，要点随 AI 返回挂到蛛网上。
-4. 鼠标悬停蛛网节点高亮对应原句；点击展开详情卡；点面板的 **⤢** 放大蛛网查看全部要点（最多 50 个）。
-5. 点蛛网中心的标题可展开全文大白话总结；鼠标停在面板上时面板会自动半透明，方便对照原文。
+1. (Optional) Open the extension options from the toolbar menu, paste an API key, pick an engine and test the connection.
+2. Open any long article and move the cursor. The spider crawls toward key sentences and highlights them in gold.
+3. The panel tracks `found / total` in real time; takeaways are attached to the web as the AI responds.
+4. Hover a web node to highlight its source sentence; click to open the detail card. Use **⤢** to enlarge the web and see up to 50 nodes.
+5. Click the hub (the centre label) to expand the plain-language summary. Move the pointer over the panel to make it translucent.
 
-### 配置 API Key
+### Configure an API key
 
-扩展支持两家服务商，在设置页选择其一即可：
+The extension supports two providers; pick one in the options page.
 
-| 引擎 | 配置项 | 说明 |
+| Engine | Fields | Notes |
 |---|---|---|
-| DeepSeek | `DeepSeek API Key` + 模型 | 默认使用 `deepseek-flash`，可选 `deepseek-v4-pro` |
-| Claude | `Anthropic API Key` + 模型 | 使用 Anthropic 官方 API |
+| DeepSeek | `DeepSeek API Key` + model | Defaults to `deepseek-flash`, `deepseek-v4-pro` also available |
+| Claude | `Anthropic API Key` + model | Uses the official Anthropic API |
 
-不填 Key 也能用：蜘蛛照常爬行高亮、列表保留本地摘要，只是蛛网保持空网状态（这是设计如此，AI 是蛛网唯一数据源）。
+No key is required to use the crawler: the spider still crawls and highlights, and the list keeps local summaries. Only the web stays empty — the AI is intentionally the sole data source for it.
 
-## 项目结构
+## Project structure
 
 ```text
 tldr-crawler/
-├── manifest.json        # MV3 扩展清单（名称、权限、入口）
-├── content.js           # 页面内全部逻辑：蜘蛛 / 高亮 / 面板 / 蛛网图谱 / 交互
-├── background.js        # Service Worker：API 代理、批处理、结构化解析
-├── options.html / .js   # 设置页：引擎切换、Key 管理、连接测试
-├── icon16|48|128.png    # 工具栏与扩展图标
-├── spider-body.png      # 蜘蛛身体素材（canvas 绘制参考）
-├── screenshots/         # README 展示图
+├── manifest.json        # MV3 manifest (name, permissions, entry points)
+├── content.js           # Everything in the page: spider / highlighting / panel / web map / interaction
+├── background.js        # Service worker: API proxy, batching, structured parsing
+├── options.html / .js   # Options page: engine switch, key management, connection test
+├── icon16|48|128.png    # Toolbar and extension icons
+├── spider-body.png      # Spider body asset (drawing reference)
+├── screenshots/         # README images
 └── LICENSE / CONTRIBUTING.md / .gitignore
 ```
 
-数据流：`discover` 扫描关键句 → `queueApi` 批量防抖 → `background.summarizeBatch` 调模型 → `parseStructured` 解析 `{topic, items, links}` → 挂回句子 → `rebuildWeb` → `paintWeb` 聚枝 → `renderWebMap` 径向扇出绘制。
+## How it works
 
-## 开发
+```text
+discover → queueApi (batch of 12, 800 ms debounce) → background.summarizeBatch
+        → parseStructured { topic, items[id, short, kw, branch, type], links }
+        → attach to sentences → paintWeb (group into branches) → renderWebMap (radial layout)
+        → spawnKeywords (fly new keywords into their capsules)
+```
 
-无构建步骤。直接改源码后，在 `chrome://extensions` 点该扩展的刷新按钮 ↻ 即可生效。面板 header 右上会显示当前版本号，可用于确认加载的是不是最新版。
+- The scanner collects text blocks (`p`, `li`, `blockquote`, `h2`–`h4`), and falls back to leaf `div` / `section` / `td` elements when it finds fewer than three standard blocks.
+- Sentences are split with DOM `Range`s, scored, and the top ~25% become key sentences.
+- The spider discovers a sentence by physically walking over it; discovery highlights it, adds it to the list and queues it for the model.
+- Structured parsing tolerates string numbers, re-numbered ids, ```` ```json ```` fences and common JSON mistakes (trailing commas, curly quotes, unquoted values).
 
-本项目由 WorkBuddy 协同开发，JS 源码未使用任何第三方库；蛛网视觉与交互细节见 `screenshots/web-map-concept.png`。
+## Development
 
-## 贡献
+There is no build step. Edit the sources, then click the reload button ↻ for the extension on `chrome://extensions`. The panel header shows the running version — use it to confirm you are not testing an old build.
 
-欢迎提 Issue 和 PR，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+The JavaScript uses no third-party libraries. Visual and interaction details are documented in `screenshots/web-map-concept.png`.
 
-## 更新日志
+## Troubleshooting
 
-- **v2.3.1** — 渐进织网动画：蛛丝从中心抽出、胶囊由内而外弹出，带节流与「减少动画」系统偏好兜底。
-- **v2.3.0** — 修「后台没响应」：按需调用先 PING 唤醒空闲的 Service Worker，兼容扩展刚更新后的上下文失效提示。
-- **v2.2.9** — 修大白话通道层静默失败：后台必回错误码、前端自动重试一次并显示真实原因。
-- **v2.2.8** — 新增「大白话全文总结」：点中心标题看一段中文白话总结。
-- **v2.2.7** — 悬浮褪色收窄到只有底板与蛛丝，操作界面不褪。
-- **v2.2.6 / v2.2.5** — 鼠标压面板时整体半透明，档位定稿 0.81。
-- **v2.2.4** — 要点上限提到 50、要点多时自动放大面板、重新启动清网。
-- **v2.2.3** — 面板放大按钮、面板 chrome 中性灰化、细丝提亮、移除网心小蜘蛛。
-- **v2.2.2** — 蛛网胶囊点开详情卡。
-- **v2.2.1** — 修复字符串 id 解析 / 列表被 flex 压扁 / 强制中文输出。
-- **v2.2.0** — 蛛网图谱落地。
+| Symptom | Meaning |
+|---|---|
+| Panel shows `0 / 0` and an empty list | The page had no scannable text. Most often the content lives inside an `iframe`, which a content script cannot reach. |
+| Count is above zero but the web stays empty | The AI call failed. The empty web now prints the reason (e.g. invalid key, balance, malformed response). |
+| Panel shows an old version after updating | Reload the extension, then reload the page. If the version still does not change, remove the extension and load it again. |
+
+## Changelog
+
+- **v2.3.6** — page support: fall back to leaf `div` / `section` / `td` when a page has no standard text blocks (mail clients, docs, admin panels).
+- **v2.3.5** — fix plain-language card buttons escaping the card (measure after filling content); slower, larger keyword flight with ease-in-out motion.
+- **v2.3.4** — the empty web now reports *why* the AI failed instead of spinning forever.
+- **v2.3.3** — fix the "empty web" regression: reword the `kw` prompt instruction, add tolerant JSON repair, raise `max_tokens` to 4000.
+- **v2.3.2** — keyword flight: keywords travel along silk threads from the source sentence to their capsules.
+- **v2.3.1** — progressive weaving animation (silk drawn outward, capsules popped in).
+- **v2.3.0** — ping the service worker before on-demand calls to survive cold starts.
+- **v2.2.9** — surface real errors when the plain-language channel fails.
+- **v2.2.8** — plain-language summary of the whole article.
+- **v2.2.7 / v2.2.6 / v2.2.5** — hover transparency, finalised at 0.81 opacity.
+- **v2.2.4** — raise the limit to 50 points, enlarge the panel automatically when there are many.
+- **v2.2.3** — panel zoom, neutral-grey chrome, brighter silk.
+- **v2.2.2** — node detail cards.
+- **v2.2.1** — fix string ids, collapsed list, force Chinese output.
+- **v2.2.0** — the spider-web map lands.
+
+## Contributing
+
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
