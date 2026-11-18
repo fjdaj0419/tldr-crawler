@@ -493,6 +493,20 @@
   background: rgba(255,255,255,.14);
   border-radius: 3px;
 }
+/* ── 鼠标压到面板上：只有底板和蛛丝褪色；按钮、列表等操作界面始终清晰 ── */
+.panel {
+  transition: background-color .2s cubic-bezier(.2,.9,.3,1),
+              border-color .2s cubic-bezier(.2,.9,.3,1),
+              box-shadow .2s cubic-bezier(.2,.9,.3,1);
+}
+.panel:hover {
+  background: rgba(22,24,28,.81);
+  border-color: rgba(255,255,255,.06);
+  box-shadow: 0 18px 44px rgba(0,0,0,.46);
+}
+/* 丝单独淡一档：胶囊、详情卡是内容，不跟着淡；toast / AI 报错徽标也不淡 */
+.websilk { transition: opacity .2s cubic-bezier(.2,.9,.3,1); }
+.panel:hover .websilk { opacity: .81; }
 .hd { flex: none; }
 .track { flex: none; }
 .ai { flex: none; }
@@ -634,7 +648,19 @@
   border-color: rgba(255,209,102,.5);
   background: linear-gradient(180deg, rgba(46,38,20,.98), rgba(26,22,14,.98));
   box-shadow: 0 0 16px rgba(255,209,102,.16);
-  cursor: default;
+  cursor: pointer;
+}
+.pill.hub:hover {
+  border-color: rgba(255,209,102,.9);
+  box-shadow: 0 0 22px rgba(255,209,102,.32);
+  transform: translate(-50%, -50%) scale(1.05);
+  z-index: 6;
+}
+.pill.hub::after {
+  content: " ›";
+  font-size: 11px;
+  opacity: .72;
+  letter-spacing: 0;
 }
 .pill.br {
   font-size: 10px;
@@ -655,6 +681,18 @@
 .web.dense .pill { font-size: 8.5px; max-width: 70px; padding: 1.5px 4px; line-height: 1.3; }
 .web.dense .pill.br { font-size: 9px; max-width: 66px; padding: 2px 4px; }
 .web.dense .pill.hub { font-size: 9.5px; max-width: 92px; padding: 3px 6px; }
+/* ── 织网动画：丝从中心抽出、胶囊由内而外依次弹出 ──
+   结束态刻意等于默认态，胶囊用 backwards（不用 forwards），
+   这样动画播完 hover 的 scale(1.06) 照常生效。 */
+@keyframes tldr-silk-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes tldr-silk-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tldr-pill-pop {
+  from { opacity: 0; transform: translate(-50%,-50%) scale(.45); }
+  to   { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pill, .websilk path, .websilk circle { animation: none !important; }
+}
 .panel.wide .list { max-height: min(34vh, 320px); }
 .pill.on {
   background: rgba(34,39,47,.99);
@@ -782,6 +820,55 @@
 /* 放大态：详情卡跟着放宽，正文也大一档 */
 .panel.wide .webcard .wc-sum { font-size: 12.5px; }
 .panel.wide .webcard .wc-full { font-size: 11.5px; line-height: 1.62; }
+/* 大白话卡：比单句详情卡宽一档，正文是连贯一段，带底部重试/更新条 */
+.webcard.plain {
+  width: 300px;
+  max-height: 300px;
+  border-left-color: rgba(255,209,102,.75);
+}
+.panel.wide .webcard.plain { width: 340px; max-height: 340px; }
+.webcard .wc-plain {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 11.5px;
+  line-height: 1.78;
+  color: #e2e8ef;
+  word-break: break-word;
+  padding-right: 3px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.14) transparent;
+}
+.panel.wide .webcard .wc-plain { font-size: 12.5px; line-height: 1.8; }
+.webcard .wc-plain.wait { color: #7d838d; font-size: 11px; }
+.webcard .wc-meta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.webcard .wc-meta .wc-n {
+  font-size: 9.5px;
+  color: #6b727c;
+  white-space: nowrap;
+}
+.webcard .wc-meta button {
+  appearance: none;
+  margin-left: auto;
+  border: 1px solid rgba(255,209,102,.28);
+  background: rgba(255,209,102,.08);
+  color: #e8d8a8;
+  font: 500 10px/1 inherit;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.webcard .wc-meta button:hover { background: rgba(255,209,102,.16); color: #ffe9b0; }
 .foldhd {
   display: flex;
   align-items: center;
@@ -1078,6 +1165,16 @@
     const data = opt.data || { hub: '', branches: [], chords: [] };
     const branches = data.branches || [];
 
+    /* 织网动画：由 paintWeb 节流后决定要不要播。丝按阶段错峰，胶囊由内而外弹。 */
+    const animate = !!opt.animate;
+    let animSeq = 0;
+    let phase = null;                 // { mode:'draw'|'fade', delay, dur, step }
+    const setPhase = (mode, delay, dur, step) => {
+      animSeq = 0;
+      phase = { mode: mode, delay: delay, dur: dur, step: step || 0 };
+    };
+    const pillSeq = { hub: 0, br: 0, leaf: 0 };
+
     host.innerHTML = '';
     host.style.width = S + 'px';
     host.style.height = H + 'px';
@@ -1091,6 +1188,14 @@
       const el = doc.createElement('div');
       el.className = 'pill' + (cls ? ' ' + cls : '');
       el.style.visibility = 'hidden';
+      if (animate) {
+        /* 中心先落子 → 枝 → 叶，同层按出现顺序再错开一点 */
+        const kind = cls === 'hub' ? 'hub' : (cls === 'br' ? 'br' : 'leaf');
+        const base = kind === 'hub' ? 40 : (kind === 'br' ? 170 : 300);
+        const gap = kind === 'hub' ? 0 : (kind === 'br' ? 34 : 26);
+        const dl = base + (pillSeq[kind]++) * gap;
+        el.style.animation = 'tldr-pill-pop .34s cubic-bezier(.18,.9,.28,1.12) ' + dl + 'ms backwards';
+      }
       host.appendChild(el);
       return el;
     };
@@ -1105,7 +1210,7 @@
     /* ── 中心：页面主题 ── */
     const hubEl = mk('hub');
     hubEl.textContent = clipPill(data.hub || '等待织网', big ? 18 : 14);
-    hubEl.title = data.hub || '';
+    hubEl.title = (data.hub ? data.hub + '\n' : '') + '点开看全文的大白话总结';
     const hubPos = place(hubEl, C, CY);
 
     /* ── 主枝胶囊：枝名 + 这一枝的类型构成小点 ── */
@@ -1244,6 +1349,7 @@
     svg.setAttribute('width', S);
     svg.setAttribute('height', H);
     svg.setAttribute('viewBox', '0 0 ' + S + ' ' + H);
+    svg.setAttribute('class', 'websilk');
     svg.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;overflow:visible';
     host.insertBefore(svg, host.firstChild);
     const g = doc.createElementNS(ns, 'g');
@@ -1258,6 +1364,19 @@
       if (o.dash) p.setAttribute('stroke-dasharray', o.dash);
       p.setAttribute('stroke-linecap', 'round');
       p.setAttribute('opacity', o.o == null ? 1 : o.o);
+      if (animate && phase) {
+        const dl = phase.delay + (animSeq++) * phase.step;
+        if (phase.mode === 'draw' && !o.dash) {
+          /* pathLength=1：不管丝实际多长，都用 0→1 的 dashoffset 抽出来 */
+          p.setAttribute('pathLength', '1');
+          p.setAttribute('stroke-dasharray', '1');
+          p.setAttribute('stroke-dashoffset', '1');
+          p.style.animation = 'tldr-silk-draw ' + phase.dur + 'ms cubic-bezier(.3,.7,.3,1) ' + dl + 'ms forwards';
+        } else {
+          /* 背景细丝 / 虚线：整条淡入，别逐段抽（太多会糊成一片） */
+          p.style.animation = 'tldr-silk-fade 420ms ease-out ' + dl + 'ms backwards';
+        }
+      }
       g.appendChild(p);
       return p;
     };
@@ -1268,10 +1387,14 @@
       e.setAttribute('r', r * kw);
       e.setAttribute('fill', c);
       e.style.filter = 'drop-shadow(0 0 4px ' + c + ')';
+      if (animate && phase) {
+        e.style.animation = 'tldr-silk-fade 300ms ease-out ' + (phase.delay + (animSeq++) * 3) + 'ms backwards';
+      }
       g.appendChild(e);
     };
 
     /* 残环：只画断续弧，网边永远没织完 */
+    if (animate) setPhase('fade', 0, 0, 8);          // 背景先铺，越早越淡入
     for (let i = 0; i < 10; i++) {
       const a1 = i * 36 + 6, a2 = a1 + 22;
       const p1 = pt(a1, RX * 1.14, RY * 1.12), p2 = pt(a2, RX * 1.14, RY * 1.12);
@@ -1280,6 +1403,7 @@
         { c: 'rgba(255,255,255,.17)', w: 1.05 });
     }
     /* 锚丝：从外环甩向四角 */
+    if (animate) setPhase('fade', 90, 0, 30);
     if (branches.length) {
       const corners = [[0, 0], [S, 0], [0, H], [S, H]];
       for (let i = 0; i < corners.length; i++) {
@@ -1295,6 +1419,7 @@
 
     /* ── 装饰丝：缝隙里没长成话题的小网眼 + 四角游丝，越空越密 ── */
     const deco = opt.deco == null ? 1 : opt.deco;
+    if (animate) setPhase('fade', 120, 0, 1.4);      // 装饰细丝铺开，step 小、fade 统一
     if (deco > 0.02) {
       let sd = 20261103;
       const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
@@ -1415,7 +1540,8 @@
       }
     }
 
-    /* 主枝丝：白、最粗、轻弯 */
+    /* 主枝丝：白、最粗、轻弯 —— 从中心抽出 */
+    if (animate) setPhase('draw', 150, 480, 46);
     for (let i = 0; i < branchEls.length; i++) {
       const br = branchEls[i];
       const p1 = { x: C, y: CY }, p2 = br.dot;
@@ -1426,7 +1552,8 @@
         { c: 'rgba(255,255,255,.78)', w: 1.8, o: .92 });
     }
 
-    /* 子枝丝：白、细、弯到叶子的交点 */
+    /* 子枝丝：白、细、弯到叶子的交点 —— 跟着枝往外抽 */
+    if (animate) setPhase('draw', 340, 400, 14);
     for (let i = 0; i < leafEls.length; i++) {
       const lf = leafEls[i];
       const br = branchEls[lf.bi];
@@ -1440,6 +1567,7 @@
     }
 
     /* 彩色末端：丝的最后 11px 是类型色 —— 颜色只贴在节点端 */
+    if (animate) setPhase('fade', 560, 0, 10);
     for (let i = 0; i < leafEls.length; i++) {
       const lf = leafEls[i];
       const br = branchEls[lf.bi];
@@ -1478,6 +1606,7 @@
     }
 
     /* 交点亮点：这里能抓 */
+    if (animate) setPhase('fade', 640, 0, 6);
     for (let i = 0; i < leafEls.length; i++) dotAt(leafEls[i].dot.x, leafEls[i].dot.y, leafEls[i].ty.c, 2.1);
     for (let i = 0; i < branchEls.length; i++) dotAt(branchEls[i].dot.x, branchEls[i].dot.y, 'rgba(255,255,255,.85)', 2.3);
     dotAt(C, CY, '#fff', 2);
@@ -1569,9 +1698,12 @@
       this.webChords = [];              // 跨枝关联 [[sid, sid]]
       this.webTimer = 0;
       this.webFlashTimer = 0;
+      this.lastWeaveAt = 0;             // 上次播织网动画的时间，节流用（爬取中每 200ms 重画，不能每次从头播）
       this.webHovered = null;
-      this.webCardSid = -1;             // 详情卡当前对应的句子 id（-1 = 关着）
+      this.webCardSid = -1;             // 详情卡当前对应的句子 id（-1 = 关着，-2 = 中心标题的大白话卡）
       this.webCardSent = null;
+      this.plainCache = null;           // 大白话总结缓存 {text, count} 或 {error}，本次会话有效
+      this.plainBusy = false;
       this.aiAvailable = false;
       this.aiProvider = 'deepseek';   // 'deepseek' | 'anthropic'
       this.aiName = 'DeepSeek';       // 按钮上显示的名字
@@ -2982,11 +3114,13 @@
       if (!panel) return;
 
       panel.addEventListener('click', (e) => {
-        /* 详情卡开着时：点卡片外面（又不是点另一颗胶囊）就收起 */
-        if (this.webCardSid != null && this.webCardSid !== -1) {
+      /* 详情卡开着时：点卡片外面（又不是点另一颗胶囊、也不是点中心标题）就收起 */
+      if (this.webCardSid != null && this.webCardSid !== -1) {
           const t = e.target;
           const inCard = t && t.closest ? t.closest('.webcard') : null;
-          const onPill = t && t.closest ? t.closest('.pill[data-sid]') : null;
+          const onPill = t && t.closest
+            ? t.closest('.pill[data-sid], .pill.hub')
+            : null;
           if (!inCard && !onPill) this.closeWebCard();
         }
         const btn = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
@@ -3054,6 +3188,17 @@
           e.stopPropagation();
           const act = b.getAttribute('data-wc');
           if (act === 'close') this.closeWebCard();
+          else if (act === 'plain-retry') this.loadPlain();
+          else if (act === 'plain-copy') {
+            const text = this.plainCache && this.plainCache.text;
+            if (!text) return;
+            const done = () => this.toast('已复制大白话总结');
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(text).then(done, () => {
+                if (this.legacyCopy(text)) done(); else this.toast('复制失败');
+              });
+            } else if (this.legacyCopy(text)) done();
+          }
           else if (act === 'locate') this.locateSentence(this.webCardSent);
           else if (act === 'copy') {
             const s = this.webCardSent;
@@ -3239,6 +3384,7 @@
         btn.setAttribute('aria-label', on ? '还原大小' : '放大查看');
       }
       this.closeWebCard();
+      this.lastWeaveAt = Date.now();   // 尺寸切换是瞬间重排，不吃织网动画
       this.paintWeb();          // 立即按新尺寸重画，别让人看到旧尺寸的网
     }
 
@@ -3269,7 +3415,11 @@
 
     paintWeb() {
       if (!this.webHost || this.destroyed) return;
-      this.closeWebCard();      // 网重画了，旧胶囊没了，卡片一起收
+      /* 网重画了，单句卡要跟着收（它的胶囊没了）；大白话卡挂的是全文，留着别打断开 */
+      if (this.webCardSid === -2) {
+        /* 但句数会变：刷新卡底的「已抓到 N 句 / 内容有更新」，别停在旧数字 */
+        setTimeout(() => { if (this.webCardSid === -2) this.paintPlainCard(); }, 0);
+      } else this.closeWebCard();
       const on = this.aiOn();
       const live = on ? this.webNodesAll() : [];
 
@@ -3278,6 +3428,12 @@
 
       const nodes = live.slice(0, this.wide ? MAX_POINTS : WIDE_AT);
       this.webHost.classList.toggle('dense', nodes.length > DENSE_AT);
+
+      /* 织网动画节流：爬取中每批新要点都会重画，但 650ms 内不重复从头播，
+         否则动画永远卡在开头那几帧。空网不播（本来就在提示「让我织」）。 */
+      const now = Date.now();
+      const weave = nodes.length > 0 && (now - this.lastWeaveAt > 650);
+      if (weave) this.lastWeaveAt = now;
 
       /* 空网：只有装饰丝 + 中心主题，本身就在提示「让我织」 */
       if (!nodes.length) {
@@ -3383,6 +3539,7 @@
       renderWebMap(this.webHost, {
         data: data,
         deco: clamp(1 - nodes.length / 14, 0.12, 1),
+        animate: weave,
         S: sz.S,
         H: sz.H
       });
@@ -3417,6 +3574,13 @@
     }
 
     onWebClick(e) {
+      /* 中心标题：开/关「大白话全文总结」卡 */
+      const hub = e.target && e.target.closest ? e.target.closest('.pill.hub') : null;
+      if (hub) {
+        if (this.webCardSid === -2) { this.closeWebCard(); return; }
+        this.openPlainCard(hub);
+        return;
+      }
       const pill = e.target && e.target.closest ? e.target.closest('.pill[data-sid]') : null;
       if (!pill) return;
       const sid = Number(pill.getAttribute('data-sid'));
@@ -3425,6 +3589,239 @@
       /* 再点同一颗：收起（像个开关） */
       if (this.webCardSid === sid) { this.closeWebCard(); return; }
       this.openWebCard(pill, sent);
+    }
+
+    /* 当前可送去写大白话的关键句数（最多 60，和后台对齐） */
+    plainSourceCount() {
+      let n = 0;
+      for (let i = 0; i < this.keySentences.length && n < 60; i++) {
+        if (this.keySentences[i].found) n++;
+      }
+      return n;
+    }
+
+    /* 点中心标题：贴在网上展开「大白话全文总结」卡，复用详情卡容器 */
+    openPlainCard(pill) {
+      const card = this.shadow ? this.shadow.getElementById('webCard') : null;
+      if (!card) return;
+      const wrap = card.parentNode;
+      if (!wrap) return;
+
+      this.closeWebCard();
+      this.webCardSid = -2;                 // -2 = 大白话卡（句子 id 从 1 开始）
+      const doc = this.shadow.ownerDocument || document;
+      card.innerHTML = '';
+      card.classList.add('plain');
+
+      const hd = doc.createElement('div');
+      hd.className = 'wc-hd';
+      const ty = doc.createElement('span');
+      ty.className = 'wc-ty';
+      ty.innerHTML = '<i style="background:#ffd166"></i>';
+      ty.appendChild(doc.createTextNode('大白话总结'));
+      hd.appendChild(ty);
+      const x = doc.createElement('button');
+      x.type = 'button';
+      x.className = 'wc-x';
+      x.setAttribute('data-wc', 'close');
+      x.textContent = '×';
+      hd.appendChild(x);
+      card.appendChild(hd);
+
+      const body = doc.createElement('div');
+      body.className = 'wc-plain';
+      card.appendChild(body);
+
+      const meta = doc.createElement('div');
+      meta.className = 'wc-meta';
+      card.appendChild(meta);
+
+      card.hidden = false;
+      pill.classList.add('on');
+
+      /* 定位：贴在标题下方，放不下翻上方，左右夹在网内 */
+      const cw = Math.min(this.wide ? 340 : 300, Math.max(200, wrap.clientWidth - 8));
+      card.style.width = cw + 'px';
+      const pr = pill.getBoundingClientRect();
+      const wr = wrap.getBoundingClientRect();
+      const ch = card.offsetHeight || 240;
+      let left = (pr.left - wr.left) + pr.width / 2 - cw / 2;
+      left = Math.min(Math.max(left, 4), Math.max(4, wr.width - cw - 4));
+      let top = (pr.top - wr.top) + pr.height + 6;
+      if (top + ch > wr.height - 2) top = (pr.top - wr.top) - ch - 6;
+      top = Math.min(Math.max(top, 2), Math.max(2, wr.height - ch - 2));
+      card.style.left = left + 'px';
+      card.style.top = top + 'px';
+
+      this.paintPlainCard();
+      /* 点开就要看到内容：没缓存就当场生成，不用再点第二下按钮 */
+      if (!this.plainCache) this.loadPlain();
+    }
+
+    /* 渲染大白话卡：命中缓存直接出字，否则调后台生成 */
+    paintPlainCard() {
+      const card = this.shadow ? this.shadow.getElementById('webCard') : null;
+      if (!card || card.hidden) return;
+      const body = card.querySelector('.wc-plain');
+      const meta = card.querySelector('.wc-meta');
+      if (!body || !meta) return;
+      meta.innerHTML = '';
+      const n = this.plainSourceCount();
+      const cache = this.plainCache;
+
+      const note = document.createElement('span');
+      note.className = 'wc-n';
+      note.textContent = '基于已抓到的 ' + n + ' 句';
+      meta.appendChild(note);
+
+      if (this.plainBusy) {
+        body.className = 'wc-plain wait';
+        body.textContent = (this.aiName || 'AI') + ' 正在用大白话讲这篇文章…';
+        return;
+      }
+      if (cache && cache.text) {
+        body.className = 'wc-plain';
+        body.textContent = cache.text;
+        /* 句数涨够了才提示重讲，别动不动就催用户花 API 调用 */
+        if (n - cache.count >= 5) {
+          const again = document.createElement('button');
+          again.type = 'button';
+          again.textContent = '内容有更新 · 重新讲';
+          again.setAttribute('data-wc', 'plain-retry');
+          meta.appendChild(again);
+        }
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.textContent = '复制这段';
+        copy.setAttribute('data-wc', 'plain-copy');
+        meta.appendChild(copy);
+        return;
+      }
+      if (cache && cache.error) {
+        body.className = 'wc-plain wait';
+        body.textContent = cache.error;
+        const again = document.createElement('button');
+        again.type = 'button';
+        again.textContent = '重试';
+        again.setAttribute('data-wc', 'plain-retry');
+        meta.appendChild(again);
+        return;
+      }
+      body.className = 'wc-plain wait';
+      body.textContent = '还没有总结内容';
+      const go = document.createElement('button');
+      go.type = 'button';
+      go.textContent = '用大白话讲一遍';
+      go.setAttribute('data-wc', 'plain-retry');
+      meta.appendChild(go);
+    }
+
+    /* 探活：MV3 的后台 service worker 空闲后会被回收。大白话是按需偶发调用，
+       常常撞上冷启动——第一条消息发出去时端口还没建好，直接拿到 lastError。
+       先发一个不读配置、不发 API 的 PING 把它唤醒，确认通道通了再发真请求。 */
+    pingBackground(cb) {
+      let done = false;
+      const finish = (ok, msg) => { if (!done) { done = true; cb(ok, msg); } };
+      try {
+        if (!chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
+          finish(false, 'no-runtime');
+          return;
+        }
+        chrome.runtime.sendMessage({ type: 'PING' }, (res) => {
+          const le = chrome.runtime.lastError;   // 必须先读，否则 Chrome 报未检查错误
+          finish(!!(res && res.pong), le ? le.message : (res ? null : 'no-response'));
+        });
+      } catch (e) {
+        finish(false, (e && e.message) || 'throw');
+      }
+    }
+
+    /* 真正发请求：结果按本次会话缓存。retried=true 表示通道抖动后的自动重试 */
+    loadPlain(retried) {
+      if (this.plainBusy) return;
+      if (!this.aiAvailable) {
+        this.plainCache = { error: '还没连上 AI，先在下面点「未连接 AI」连一下' };
+        this.paintPlainCard();
+        return;
+      }
+      const found = [];
+      for (let i = 0; i < this.keySentences.length && found.length < 60; i++) {
+        const s = this.keySentences[i];
+        if (s.found) found.push({ text: s.text });
+      }
+      if (!found.length) {
+        this.plainCache = { error: '蜘蛛还没读到关键句，动一下鼠标让它爬一爬' };
+        this.paintPlainCard();
+        return;
+      }
+      this.plainBusy = true;
+      this.plainCache = null;
+      this.paintPlainCard();
+      const gen = this.webGen;
+
+      const giveUp = (msg) => {
+        if (this.destroyed || gen !== this.webGen) return;
+        this.plainBusy = false;
+        this.plainCache = { error: msg };
+        this.paintPlainCard();
+      };
+      /* 通道层失败：未重试过就等一下重来（重来时会重新 PING）；否则给出人话提示。
+         无论哪条路，都必须把 busy 标志放回去，否则下次点 hub 会被 if(plainBusy) return 挡住。 */
+      const retryOrGiveUp = (msg) => {
+        if (this.destroyed || this.webCardSid !== -2 || gen !== this.webGen) {
+          this.plainBusy = false;
+          return;
+        }
+        if (retried) { giveUp(msg); return; }
+        this.plainBusy = true;
+        this.paintPlainCard();
+        setTimeout(() => {
+          if (this.destroyed || this.webCardSid !== -2 || gen !== this.webGen) {
+            this.plainBusy = false;
+            return;
+          }
+          this.plainBusy = false;
+          this.loadPlain(true);
+        }, 450);
+      };
+
+      /* 第一步：PING 唤醒后台并确认通道 */
+      this.pingBackground((ok, err) => {
+        if (this.destroyed || gen !== this.webGen) return;
+        if (!ok) {
+          /* 「扩展上下文无效」= 刷新了扩展但没刷新网页，旧页面的 content script 还在。
+             这种重试也没用，直接给可执行的提示；其余按冷启动处理、重试一次。 */
+          const dead = /context invalidated|invalidated extension context|receiving end does not exist|no-runtime/i.test(err || '');
+          retryOrGiveUp(dead
+            ? '扩展刚更新过，请刷新网页后再点标题（' + (err || '通道断开') + '）'
+            : '后台没响应：' + (err || '消息通道断开'));
+          return;
+        }
+
+        /* 第二步：通道确认通畅，发真正的大白话请求 */
+        try {
+          chrome.runtime.sendMessage({ type: 'TLDR_PLAIN', sentences: found }, (res) => {
+            if (this.destroyed) return;
+            const le = chrome.runtime.lastError;
+            if (gen !== this.webGen) return;
+            if (le || !res) {
+              retryOrGiveUp('后台没响应：' + ((le && le.message) || '消息通道断开'));
+              return;
+            }
+            this.plainBusy = false;
+            if (!res.ok || !res.text) {
+              /* 后台所有失败都带 error 码；原始 detail 也带上，一眼看出真因 */
+              const human = res.error ? this.aiErrorText(res) : '大白话总结生成失败，点重试再来一次';
+              this.plainCache = { error: human + (res.detail ? '（' + String(res.detail).slice(0, 80) + '）' : '') };
+            } else {
+              this.plainCache = { text: res.text, count: found.length };
+            }
+            this.paintPlainCard();
+          });
+        } catch (e) {
+          retryOrGiveUp('调用失败：' + ((e && e.message) || '未知错误'));
+        }
+      });
     }
 
     /* 点开胶囊：贴在网上展开一张详情卡（类型 + 枝 + 短摘要 + 原文全句） */
@@ -3518,7 +3915,7 @@
       this.webCardSid = -1;
       this.webCardSent = null;
       const card = this.shadow ? this.shadow.getElementById('webCard') : null;
-      if (card) { card.hidden = true; card.innerHTML = ''; }
+      if (card) { card.hidden = true; card.innerHTML = ''; card.classList.remove('plain'); }
       const on = this.shadow ? this.shadow.querySelectorAll('.pill.on') : [];
       for (let i = 0; i < on.length; i++) on[i].classList.remove('on');
     }
@@ -3775,6 +4172,7 @@
       if (code === 'timeout') return name + ' 超时，稍后再试';
       if (code === 'network') return '连不上 ' + name;
       if (code === 'unparsable') return name + ' 返回格式不对';
+      if (code === 'exception') return name + ' 后台出错';
       if (code === 'empty' || code === 'empty-input') return name + ' 没返回内容';
       if (code.indexOf('http-401') === 0) return name + ' Key 无效（401）';
       if (code.indexOf('http-402') === 0) return name + ' 余额不足（402）';
@@ -4031,8 +4429,11 @@
       this.webTopic = '';
       this.webChords = [];
       this.webHovered = null;
+      this.lastWeaveAt = 0;               // 新一轮织网可以重新播动画
       this.autoWide = false;
       this.wideOptOut = false;
+      this.plainCache = null;             // 重启即清缓存，别拿旧文章的总结给新文章看
+      this.plainBusy = false;
       clearTimeout(this.webTimer);
       this.webTimer = 0;
       clearTimeout(this.webFlashTimer);
@@ -4111,6 +4512,8 @@
       this.webHovered = null;
       this.webCardSid = -1;
       this.webCardSent = null;
+      this.plainCache = null;
+      this.plainBusy = false;
 
       // 数据结构
       this.sentences = [];

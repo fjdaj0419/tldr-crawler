@@ -84,12 +84,31 @@ chrome.action.onClicked.addListener(function (tab) {
  * ---------------------------------------------------------------------- */
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (!msg || typeof msg !== 'object') return;
+  /* 极轻量探活：不读配置、不发 API，立刻回。
+     MV3 的 service worker 会在空闲后被回收，按需调用（大白话）常常撞上冷启动，
+     第一次 sendMessage 会因为端口还没建好而拿到 lastError。前端先用它把 SW 唤醒。 */
+  if (msg.type === 'PING') {
+    sendResponse({ ok: true, pong: true });
+    return;
+  }
   if (msg.type === 'TLDR_SUMMARIZE') {
     summarizeBatch(msg.sentences || []).then(sendResponse);
     return true; // 异步
   }
   if (msg.type === 'TLDR_VERDICT') {
     verdict(msg.sentences || []).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'TLDR_PLAIN') {
+    /* 大白话是按需调用，触发时机不固定。以前只要 plainChinese 里任何一步抛错，
+       Promise 就 reject、sendResponse 永远不执行，前端只收到一个空 res + lastError，
+       被翻成没有信息量的「生成失败」。这里保证无论成功失败都一定回一个带错误码的响应。 */
+    Promise.resolve()
+      .then(function () { return plainChinese(msg.sentences || []); })
+      .then(function (r) { sendResponse(r); })
+      .catch(function (e) {
+        sendResponse({ ok: false, error: 'exception', detail: String((e && e.message) || e) });
+      });
     return true;
   }
   if (msg.type === 'TLDR_TEST') {
@@ -488,6 +507,43 @@ async function verdict(sentences) {
     .slice(0, 3);
   if (!lines.length) return { ok: false, error: 'empty', provider: r.provider, name: r.name };
   return { ok: true, lines: lines, provider: r.provider, name: r.name };
+}
+
+/* -------------------------------------------------------------------------
+ * 中心标题点开用：把已抓到的关键句讲成一段大白话中文（150–250 字）
+ * 和 verdict 的区别：verdict 是 3 行极简 TL;DR，这里要连贯成段、讲清楚全文
+ * ---------------------------------------------------------------------- */
+async function plainChinese(sentences) {
+  const list = sentences
+    .map(function (s) { return String(s && s.text ? s.text : '').replace(/\s+/g, ' ').trim(); })
+    .filter(Boolean)
+    .slice(0, 60);
+  if (!list.length) return { ok: false, error: 'empty-input' };
+
+  const prompt = [
+    '下面是一篇文章里被摘出的关键句（JSON 数组）。请把这篇文章讲给一个没读过原文的朋友听。',
+    '硬性要求：',
+    '1. 写成一段连贯的大白话，150 到 250 个汉字，不要分点、不要编号、不要小标题；',
+    '2. 只用这些句子里出现过的事实，不得引入任何新事实、背景知识或推断；',
+    '3. 数字、人名、公司名、专有名词必须与原文完全一致，一个字符都不能改；',
+    '4. 先说这篇东西到底在讲什么，再说关键内容，最后说它的结论或意义；',
+    '5. 像平时跟人聊天那样讲，不要书面腔、不要堆术语、不要空话套话；',
+    '6. 必须全部用简体中文，即使关键句是英文也要翻译（专有名词保留原文写法）；',
+    '7. 输出纯文本，就那一段话，不要引号、不要 Markdown、不要任何解释。',
+    '',
+    '关键句：',
+    JSON.stringify(list, null, 0)
+  ].join('\n');
+
+  const r = await callModel(prompt, 700);
+  if (!r.ok) return r;
+
+  const text = String(r.text || '')
+    .replace(/^[\s"“”'']+|[\s"“”'']+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return { ok: false, error: 'empty', provider: r.provider, name: r.name };
+  return { ok: true, text: text, count: list.length, provider: r.provider, name: r.name };
 }
 
 /* 本地截断兜底，避免模型少返回时出现空条目 */

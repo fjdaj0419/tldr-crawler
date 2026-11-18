@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TL;DR Crawler",
-  "version": "2.2.4",
+  "version": "2.3.1",
   "description": "一只会爬行的蜘蛛，跟随你的光标阅读网页，高亮关键句并把要点织成一张 TL;DR 蛛网（支持 DeepSeek / Claude）。",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
