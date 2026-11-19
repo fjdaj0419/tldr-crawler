@@ -673,6 +673,10 @@
 }
 .pill .tp { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: middle; }
 .pill .tp i { width: 4px; height: 4px; border-radius: 50%; display: inline-block; }
+/* 话题枝末端（层级网）：带 › 提示可点开下一层，边框略亮一点区别于普通叶子 */
+.pill.grp::after { content: " ›"; opacity: .62; font-size: .92em; }
+.pill.grp { border-style: dashed; }
+.pill.grp:hover { border-style: solid; }
 /* 放大态：网大了，胶囊和文字同比放大一档，别缩成蚂蚁 */
 .panel.wide .pill { font-size: 11px; max-width: 108px; padding: 3px 8px; }
 .panel.wide .pill.hub { font-size: 12px; max-width: 132px; padding: 4px 10px; }
@@ -1139,8 +1143,8 @@
 
   /* 网的容量：普通宽度最多铺 24 个，再多就自动切放大态（620px 铺得下 50 个） */
   const MAX_POINTS = 50;      // 上网的要点硬上限
-  const WIDE_AT = 16;         // 超过这个数自动放大（372px 里 4 枝×4 叶最舒服）
-  const DENSE_AT = 28;        // 超过这个数胶囊进入紧凑样式
+  const WIDE_AT = 24;         // 超过这个数自动放大（层级网主网画到话题枝，普通态放宽到 ~24）
+  const DENSE_AT = 32;        // 超过这个数胶囊进入紧凑样式
 
   function clipPill(s, max) {
     const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
@@ -1264,12 +1268,17 @@
       for (let li = 0; li < n; li++) {
         const l = b.leaves[li];
         const ty = WEB_TYPES[l.ty] || WEB_TYPES.quote;
-        const el = mk('');
+        const el = mk(l.grp ? 'grp' : '');
         el.textContent = clipPill(l.t, big ? 18 : 13);
-        el.title = l.full || l.t;
+        el.title = l.grp ? ((l.kids ? l.kids.length : 0) + ' 条要点 · 点开看下一层') : (l.full || l.t);
         el.style.borderColor = ty.c + 'cc';
         el.style.boxShadow = '0 0 0 1px ' + ty.c + '22, 0 3px 10px rgba(0,0,0,.55)';
-        if (l.sid != null) el.setAttribute('data-sid', String(l.sid));
+        if (l.grp) {
+          /* 话题枝末端：记下它在树里的坐标，点开时据此取 kids */
+          el.setAttribute('data-grp', bi + '-' + li);
+        } else if (l.sid != null) {
+          el.setAttribute('data-sid', String(l.sid));
+        }
         const lane = li % lanes;
         const qi = Math.floor(li / lanes);                  // 这一层里的第几颗
         const qc = Math.ceil((n - lane) / lanes);           // 这一层共几颗
@@ -1661,6 +1670,8 @@
       this.flyers = [];                 // 关键词飞入蛛网的飞行物（canvas 绘制）
       this.firstWeaveDone = false;      // 首次织网是否已完成：首次用整体动画，之后用「飞入」
       this.onWebSids = new Set();       // 上一轮已在网上的句子 id，用来判断「本轮新增」
+      this.webData = null;              // 当前网的数据树（层级/扁平），展开视图据此取 kids
+      this.webFocus = null;             // 层级网点开的话题枝坐标 {bi,li}；null=全图
       this.motionScale = 1;
       this.stepScale = 1;
       this.glowT = 0;
@@ -1719,6 +1730,12 @@
       this.aiBadgeTimer = 0;
       this.aiDiag = '';                 // 最近一次「AI 没把要点挂上网」的原因，显示在空网提示里
       this.aiDiagAt = 0;
+
+      /* 整篇层级归纳（AI 动态分块 → 话题枝 → 句子），替代 h2 那套 */
+      this.structTimer = 0;             // 空闲防抖：爬取告一段落才发一次整篇归纳
+      this.structBusy = false;          // 在途的层级归纳请求
+      this.structDone = false;          // 本次会话已经成功归纳过（避免每批重复调用烧额度）
+      this.structGen = 0;               // 归纳请求的代数，重启后旧结果作废（跟 webGen 同步）
 
       /* 绑定的事件（统一注销） */
       this.bound = [];
@@ -2011,6 +2028,8 @@
         spans: spans,
         articleIndex: null,
         blockIndex: null,
+        section: '',            // 所属原文子部分（最近的前置 h2/h3/h4 标题），无标题页留空
+        hint: '',               // 块前的短标签行（Talk 1: / Speaker: 等），给层级归纳当结构信号
         score: 0,
         key: false,
         found: false,
@@ -2040,6 +2059,77 @@
       this.ingestBlocks(blocks);
     }
 
+    /* 找块所属的原文子部分：先找最近的 h2/h3/h4 祖先，再退而求其次找 DOM 前序里最近的前置标题。
+       标题块（h2/h3/h4）自己也返回它自己的文本，方便标题句归到自己名下。
+       没有标题的页面返回 ''，后面建树时降级为原来的扁平结构。 */
+    sectionForBlock(blockEl) {
+      if (!blockEl || !blockEl.tagName) return '';
+      const TAG = /^H[1-6]$/;
+      // 1) 块自己是标题 / 块被标题包着
+      let up = blockEl;
+      let guard = 0;
+      while (up && guard++ < 8) {
+        if (TAG.test(up.tagName)) {
+          const t = (up.textContent || '').replace(/\s+/g, ' ').trim();
+          if (t) return t.slice(0, 16);
+        }
+        up = up.parentElement;
+      }
+      // 2) DOM 前序里最近的前置标题（只看 h2-h4，h1 通常是整页大标题，留给 hub）
+      //    用文档顺序的 TreeWalker 向前找，能跨过嵌套的 div/section。
+      const PREV = 'h2, h3, h4, [role="heading"][aria-level="2"], [role="heading"][aria-level="3"]';
+      let node = blockEl;
+      guard = 0;
+      while (node && guard++ < 4000) {
+        let prev = node.previousElementSibling;
+        while (!prev && node.parentElement) { node = node.parentElement; prev = node.previousElementSibling; }
+        if (!prev) break;
+        // 在这个前置兄弟子树里找最后一个标题（DOM 序最靠后的那个）
+        let found = null;
+        if (prev.matches && prev.matches(PREV)) found = prev;
+        const inner = prev.querySelectorAll ? prev.querySelectorAll(PREV) : null;
+        if (inner && inner.length) found = inner[inner.length - 1];
+        if (found) {
+          const t = (found.textContent || '').replace(/\s+/g, ' ').trim();
+          if (t) return t.slice(0, 16);
+        }
+        node = prev;
+      }
+      return '';
+    }
+
+    /* 找块前面最近的「短标签行」文本（Talk 1: / Speaker: / Abstract: / 时间： …）。
+       这些行 <12 字被 collectBlocks 丢弃、不成句，但对层级归纳是宝贵的结构信号：
+       单独用 hint 字段带给 AI，不改 sent.text（text 必须和 DOM Range 对齐做高亮）。
+       判定保守：短（≤16）且以冒号结尾，或是常见邮件字段标签，避免把普通短句误当标签。 */
+    hintForBlock(blockEl) {
+      if (!blockEl || !blockEl.tagName) return '';
+      const LABEL_RE = /^(talk|speaker|title|abstract|biography|registration|date|venue|time|location|name|topic|section|part)\s*\d*\s*[:：]?/i;
+      const looksLabel = (t) => {
+        if (!t || t.length > 16) return false;
+        if (/[:：]\s*$/.test(t)) return true;              // 以冒号结尾（Talk 1: / 时间：）
+        if (LABEL_RE.test(t) && /[:：]/.test(t)) return true; // 字段标签
+        return false;
+      };
+      let node = blockEl, guard = 0;
+      while (node && guard++ < 200) {
+        let prev = node.previousElementSibling;
+        while (!prev && node.parentElement) { node = node.parentElement; prev = node.previousElementSibling; }
+        if (!prev) break;
+        const t = (prev.textContent || '').replace(/\s+/g, ' ').trim();
+        if (looksLabel(t)) return t;
+        /* 前置兄弟内部也可能含标签行（如 <div>Talk 1:</div><p>正文</p> 的兄弟包裹） */
+        if (prev.children && prev.children.length <= 3) {
+          for (let c = prev.children.length - 1; c >= 0; c--) {
+            const ct = (prev.children[c].textContent || '').replace(/\s+/g, ' ').trim();
+            if (looksLabel(ct)) return ct;
+          }
+        }
+        node = prev;
+      }
+      return '';
+    }
+
     ingestBlocks(blocks) {
       let added = 0;
       for (let i = 0; i < blocks.length; i++) {
@@ -2048,10 +2138,14 @@
         if (!parts.length) continue;
         const blockIndex = this.blocks.length;
         this.blocks.push(blockEl);
+        const section = this.sectionForBlock(blockEl);
+        const hint = this.hintForBlock(blockEl);
         for (let k = 0; k < parts.length; k++) {
           const sent = parts[k];
           sent.blockIndex = blockIndex;
           sent.articleIndex = this.sentences.length;
+          sent.section = section;
+          sent.hint = hint;
           sent.score = this.scoreSentence(sent.text);
           this.sentences.push(sent);
           this.byId.set(sent.id, sent);
@@ -3634,6 +3728,148 @@
       }
     }
 
+    /* 枝名归一：去标点、取前 6 字、互相包含算同一枝（产能 / 产能扩张） */
+    canonBranch(raw, names) {
+      const name = String(raw || '').replace(/[\s·、,，。.;；:：]+/g, '').slice(0, 6) || '其他';
+      for (let i = 0; i < names.length; i++) {
+        const a = names[i];
+        if (a === name) return a;
+        if (a.length >= 2 && name.length >= 2 && (a.indexOf(name) !== -1 || name.indexOf(a) !== -1)) return a;
+      }
+      names.push(name);
+      return name;
+    }
+
+    /* 限枝：保留最大的、合并最小的两枝，直到 ≤ 上限 */
+    limitGroups(groups, max) {
+      while (groups.length > max) {
+        let a = 0, b = 1;
+        if (groups[b].sents.length < groups[a].sents.length) { const t = a; a = b; b = t; }
+        for (let i = 2; i < groups.length; i++) {
+          const cnt = groups[i].sents.length;
+          if (cnt < groups[a].sents.length) { b = a; a = i; }
+          else if (cnt < groups[b].sents.length) { b = i; }
+        }
+        groups[a].sents = groups[a].sents.concat(groups[b].sents);
+        if (groups[a].topics) groups[a].topics = groups[a].topics.concat(groups[b].topics || []);
+        groups.splice(b, 1);
+      }
+    }
+
+    /* 跨枝虚线：两端都在网上才画。accept 决定某个 sid 是否算「在网上」 */
+    collectChords(onWeb) {
+      const chords = [];
+      for (let i = 0; i < this.webChords.length; i++) {
+        const c = this.webChords[i];
+        if (onWeb[String(c[0])] && onWeb[String(c[1])]) chords.push(c);
+      }
+      return chords;
+    }
+
+    /* 降级：无原文子部分时，按话题枝聚成扁平网（原 2.3.x 逻辑，完全兼容） */
+    buildFlatData(nodes) {
+      const names = [];
+      const groups = [];
+      const idx = {};
+      for (let i = 0; i < nodes.length; i++) {
+        const name = this.canonBranch(nodes[i].web.branch, names);
+        if (idx[name] == null) { idx[name] = groups.length; groups.push({ name: name, sents: [] }); }
+        groups[idx[name]].sents.push(nodes[i]);
+      }
+      this.limitGroups(groups, clamp(Math.ceil(nodes.length / 5), 3, 12));
+      const total = groups.length;
+      const leafMax = clamp(Math.ceil(nodes.length / Math.max(1, total)) + 1, 3, this.wide ? 10 : 4);
+      const quota = groups.map(() => 0);
+      let left = nodes.length, guard = nodes.length + 2;
+      while (left > 0 && guard-- > 0) {
+        let progressed = false;
+        for (let i = 0; i < groups.length && left > 0; i++) {
+          if (quota[i] < leafMax && groups[i].sents.length > quota[i]) { quota[i]++; left--; progressed = true; }
+        }
+        if (!progressed) break;
+      }
+      const data = { hub: this.webTopic || this.pageTopic(), branches: [], chords: [], hier: false };
+      const onWeb = {};
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        const leaves = [];
+        for (let j = 0; j < g.sents.length && leaves.length < quota[i]; j++) {
+          const s = g.sents[j];
+          leaves.push({ t: s.summary || s.text, ty: s.web.type || 'quote', sid: s.id, full: s.text });
+          onWeb[String(s.id)] = 1;
+        }
+        data.branches.push({ t: g.name, a: -100 + i * (360 / total), leaves: leaves });
+      }
+      data.chords = this.collectChords(onWeb);
+      return data;
+    }
+
+    /* 层级网：第一层 = 原文 h2 子部分，第二层 = 话题枝（可点开），句子在话题枝 kids 里。
+       主网末端画到话题枝为止；点话题枝 → 下钻/原地展开看它辖下的句子。 */
+    buildWebData(nodes) {
+      /* 数据源优先级：① AI 整篇归纳的 struct（大块→话题枝）② 原文 h2 section ③ 扁平降级 */
+      let withStruct = 0;
+      for (let i = 0; i < nodes.length; i++) if (nodes[i].struct && nodes[i].struct.block) withStruct++;
+      const useStruct = withStruct >= Math.max(3, Math.ceil(nodes.length * 0.5));
+      const withSec = nodes.filter(s => s.section);
+      if (!useStruct && !withSec.length) return this.buildFlatData(nodes);
+
+      /* 第一层分组：AI 大块 or 原文子部分（保留首次出现顺序） */
+      const secGroups = [];
+      const secIdx = {};
+      const secNames = [];
+      for (let i = 0; i < nodes.length; i++) {
+        const s = nodes[i];
+        let raw;
+        if (useStruct) raw = (s.struct && s.struct.block) ? s.struct.block : '其他';
+        else raw = s.section || '其他';
+        const nm = this.canonBranch(raw, secNames);
+        if (secIdx[nm] == null) { secIdx[nm] = secGroups.length; secGroups.push({ name: nm, sents: [] }); }
+        secGroups[secIdx[nm]].sents.push(s);
+      }
+      this.limitGroups(secGroups, clamp(Math.ceil(nodes.length / 6), 3, useStruct ? 10 : 8));
+
+      /* 第二层：每个大块内按话题枝归一（AI 归纳的 topic 优先，否则用 branch） */
+      const total = secGroups.length;
+      const branchMax = clamp(Math.ceil(nodes.length / Math.max(1, total)) + 1, 3, this.wide ? 8 : 5);
+      const data = { hub: this.webTopic || this.pageTopic(), branches: [], chords: [], hier: true, src: useStruct ? 'ai' : 'h2' };
+      const onWeb = {};
+      for (let i = 0; i < secGroups.length; i++) {
+        const g = secGroups[i];
+        const bNames = [];
+        const topics = [];
+        const tIdx = {};
+        for (let k = 0; k < g.sents.length; k++) {
+          const s = g.sents[k];
+          const rawTopic = (useStruct && s.struct && s.struct.topic) ? s.struct.topic : (s.web.branch || '要点');
+          const nm = this.canonBranch(rawTopic, bNames);
+          if (tIdx[nm] == null) { tIdx[nm] = topics.length; topics.push({ name: nm, sents: [] }); }
+          topics[tIdx[nm]].sents.push(s);
+        }
+        /* 话题枝数量也要限，超了合并最小的 */
+        this.limitGroups(topics, branchMax);
+        const leaves = [];
+        for (let t = 0; t < topics.length; t++) {
+          const tp = topics[t];
+          const kids = [];
+          for (let q = 0; q < tp.sents.length; q++) {
+            const s = tp.sents[q];
+            kids.push({ t: s.summary || s.text, ty: s.web.type || 'quote', sid: s.id, full: s.text });
+            onWeb[String(s.id)] = 1;
+          }
+          /* 主导类型：话题枝的端点色取 kids 里出现最多的类型 */
+          const cnt = {};
+          for (let q = 0; q < kids.length; q++) cnt[kids[q].ty] = (cnt[kids[q].ty] || 0) + 1;
+          let dom = 'quote', best = -1;
+          for (const k in cnt) if (cnt[k] > best) { best = cnt[k]; dom = k; }
+          leaves.push({ t: tp.name, ty: dom, grp: true, kids: kids });
+        }
+        data.branches.push({ t: g.name, a: -100 + i * (360 / total), leaves: leaves });
+      }
+      data.chords = this.collectChords(onWeb);
+      return data;
+    }
+
     paintWeb() {
       if (!this.webHost || this.destroyed) return;
       /* 网重画了，单句卡要跟着收（它的胶囊没了）；大白话卡挂的是全文，留着别打断开 */
@@ -3677,92 +3913,14 @@
       }
       this.paintWebHint('');
 
-      /* 聚枝：按首次出现顺序；枝名有包含关系就算同一枝（产能 / 产能扩张） */
-      const names = [];
-      const canon = (raw) => {
-        const name = String(raw || '').replace(/[\s·、,，。.;；:：]+/g, '').slice(0, 6) || '其他';
-        for (let i = 0; i < names.length; i++) {
-          const a = names[i];
-          if (a === name) return a;
-          if (a.length >= 2 && name.length >= 2 && (a.indexOf(name) !== -1 || name.indexOf(a) !== -1)) return a;
-        }
-        names.push(name);
-        return name;
-      };
-      const groups = [];
-      const idx = {};
-      for (let i = 0; i < nodes.length; i++) {
-        const s = nodes[i];
-        const name = canon(s.web.branch);
-        if (idx[name] == null) { idx[name] = groups.length; groups.push({ name: name, sents: [] }); }
-        groups[idx[name]].sents.push(s);
-      }
-      /* 限枝：按「每枝约 5 个叶子」的密度算枝数上限，最多 9 枝（再多就绕晕了）
-         合并永远是「两个最小的枝并一起」，否则会堆出一个巨无霸枝、别的枝只剩一两片叶 */
-      const bMax = clamp(Math.ceil(nodes.length / 5), 3, 9);
-      while (groups.length > bMax) {
-        let a = 0, b = 1;
-        if (groups[b].sents.length < groups[a].sents.length) { const t = a; a = b; b = t; }
-        for (let i = 2; i < groups.length; i++) {
-          const cnt = groups[i].sents.length;
-          if (cnt < groups[a].sents.length) { b = a; a = i; }
-          else if (cnt < groups[b].sents.length) { b = i; }
-        }
-        groups[a].sents = groups[a].sents.concat(groups[b].sents);
-        groups.splice(b, 1);
-      }
-
-      /* 转成渲染数据：3–9 枝，每枝最多 10 叶（多出来的留在折叠列表里） */
-      const total = groups.length;
-      /* 普通宽度一枝最多 4 叶（再多就互相压字），放大态放宽到 10 */
-      const leafMax = clamp(Math.ceil(nodes.length / Math.max(1, groups.length)) + 1, 3, this.wide ? 10 : 4);
-      /* 叶子配额轮转分配：合并后某些枝会变胖，直接取前 N 个会让上网的总数缩水 */
-      const quota = groups.map(() => 0);
-      let left = nodes.length;
-      let guard = nodes.length + 2;
-      while (left > 0 && guard-- > 0) {
-        let progressed = false;
-        for (let i = 0; i < groups.length && left > 0; i++) {
-          if (quota[i] < leafMax && groups[i].sents.length > quota[i]) {
-            quota[i]++; left--; progressed = true;
-          }
-        }
-        if (!progressed) break;
-      }
-      const data = {
-        hub: this.webTopic || this.pageTopic(),
-        branches: [],
-        chords: []
-      };
-      for (let i = 0; i < groups.length; i++) {
-        const g = groups[i];
-        const leaves = [];
-        for (let j = 0; j < g.sents.length && leaves.length < quota[i]; j++) {
-          const s = g.sents[j];
-          leaves.push({
-            t: s.summary || s.text,
-            ty: s.web.type || 'quote',
-            sid: s.id,
-            full: s.text
-          });
-        }
-        data.branches.push({
-          t: g.name,
-          a: -100 + i * (360 / total),
-          leaves: leaves
-        });
-      }
-      /* 跨枝虚线：两端都在网上才画 */
-      const onWeb = {};
-      for (let i = 0; i < data.branches.length; i++) {
-        for (let j = 0; j < data.branches[i].leaves.length; j++) onWeb[String(data.branches[i].leaves[j].sid)] = 1;
-      }
-      for (let i = 0; i < this.webChords.length; i++) {
-        const c = this.webChords[i];
-        if (onWeb[String(c[0])] && onWeb[String(c[1])]) data.chords.push(c);
-      }
-
+      const data = this.buildWebData(nodes);
+      this.webData = data;
       const sz = this.webSize(nodes.length);
+      /* 层级网点开了某个话题枝：按当前模式画展开视图（常态=聚焦下钻，放大=原地长分支） */
+      if (this.webFocus && data.hier && this.focusNode(data)) {
+        this.renderFocusView(data, sz);
+        return;
+      }
       renderWebMap(this.webHost, {
         data: data,
         deco: clamp(1 - nodes.length / 14, 0.12, 1),
@@ -3814,12 +3972,169 @@
       }
     }
 
+    /* webFocus 指向的叶子（话题枝）；失效返回 null */
+    focusNode(data) {
+      if (!this.webFocus || !data || !data.hier) return null;
+      const b = data.branches[this.webFocus.bi];
+      if (!b) return null;
+      const lf = b.leaves[this.webFocus.li];
+      return lf && lf.grp ? lf : null;
+    }
+
+    /* 展开视图：常态=聚焦下钻；放大=原地长分支 */
+    renderFocusView(data, sz) {
+      if (this.wide) this.renderExpandInPlace(data, sz);
+      else this.renderDrill(data, sz);
+    }
+
+    /* 造一个「返回全图」的胶囊，定位在画布左上，挂在 host 上 */
+    addBackPill(host, label) {
+      const el = document.createElement('div');
+      el.className = 'pill grp-back';
+      el.style.cssText = 'position:absolute;left:10px;top:12px;transform:none;z-index:8;font-size:9.5px;padding:2px 7px;';
+      el.textContent = label || '‹ 全图';
+      el.title = '返回整张蛛网';
+      host.appendChild(el);
+      return el;
+    }
+
+    /* 句子胶囊（展开视图里复用的小胶囊），点击仍走详情卡 */
+    makeKidPill(host, kid, x, y) {
+      const ty = WEB_TYPES[kid.ty] || WEB_TYPES.quote;
+      const el = document.createElement('div');
+      el.className = 'pill';
+      el.style.cssText = 'position:absolute;left:' + x + 'px;top:' + y + 'px;transform:translate(-50%,-50%);max-width:96px;';
+      el.textContent = clipPill(kid.t, this.wide ? 16 : 13);
+      el.title = kid.full || kid.t;
+      el.style.borderColor = ty.c + 'cc';
+      el.style.boxShadow = '0 0 0 1px ' + ty.c + '22, 0 3px 10px rgba(0,0,0,.55)';
+      if (kid.sid != null) el.setAttribute('data-sid', String(kid.sid));
+      host.appendChild(el);
+      return { el: el, x: x, y: y, ty: ty };
+    }
+
+    /* 常态：聚焦下钻 —— 路径竖排（主题→子部分→话题枝），kids 横排在下方 */
+    renderDrill(data, sz) {
+      const host = this.webHost;
+      const S = sz.S, H = sz.H;
+      host.innerHTML = '';
+      host.style.width = S + 'px'; host.style.height = H + 'px';
+      const lf = this.focusNode(data);
+      const sec = data.branches[this.webFocus.bi];
+      const kids = lf.kids || [];
+      /* 丝层 */
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'websilk');
+      svg.setAttribute('width', S); svg.setAttribute('height', H);
+      svg.setAttribute('viewBox', '0 0 ' + S + ' ' + H);
+      svg.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;overflow:visible';
+      host.insertBefore(svg, host.firstChild);
+      const line = (a, b, c) => {
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', 'M' + a.x + ',' + a.y + ' Q' + ((a.x + b.x) / 2) + ',' + ((a.y + b.y) / 2 + 8) + ' ' + b.x + ',' + b.y);
+        p.setAttribute('fill', 'none'); p.setAttribute('stroke', c || 'rgba(255,255,255,.6)');
+        p.setAttribute('stroke-width', '1.4'); svg.appendChild(p);
+      };
+      const cy = [Math.round(H * 0.16), Math.round(H * 0.40), Math.round(H * 0.62)];
+      const cx = Math.round(S / 2);
+      const chain = [
+        { t: data.hub, cls: 'hub', color: 'rgba(255,209,102,.7)' },
+        { t: sec.t, cls: 'br', color: 'rgba(255,255,255,.65)' },
+        { t: lf.t, cls: 'grp', color: (WEB_TYPES[lf.ty] || WEB_TYPES.quote).c }
+      ];
+      const pts = [];
+      for (let i = 0; i < chain.length; i++) {
+        const el = document.createElement('div');
+        el.className = 'pill ' + chain[i].cls + (i === 2 ? ' grp' : '');
+        el.style.cssText = 'position:absolute;left:' + cx + 'px;top:' + cy[i] + 'px;transform:translate(-50%,-50%);';
+        el.textContent = chain[i].t;
+        el.style.maxWidth = (S - 40) + 'px';
+        host.appendChild(el);
+        pts.push({ x: cx, y: cy[i] });
+        if (i > 0) line(pts[i - 1], pts[i], chain[i].color);
+      }
+      /* kids 横排（多则两行） */
+      const ky = Math.round(H * 0.84);
+      const perRow = Math.max(2, Math.floor((S - 20) / 96));
+      const rows = Math.ceil(kids.length / perRow) || 1;
+      const kidPts = [];
+      for (let i = 0; i < kids.length; i++) {
+        const row = Math.floor(i / perRow);
+        const col = i % perRow;
+        const inRow = Math.min(perRow, kids.length - row * perRow);
+        const x = Math.round((S - (inRow - 1) * 104) / 2) + col * 104;
+        const y = ky - (rows - 1 - row) * 34;
+        kidPts.push(this.makeKidPill(host, kids[i], x, y));
+        line(pts[2], { x: x, y: y }, 'rgba(255,255,255,.42)');
+      }
+      const back = this.addBackPill(host, '‹ 全图');
+      back.onclick = () => this.webBack();
+    }
+
+    /* 放大：原地长分支 —— 全图骨架照画，但被点的枝以外淡出，kids 从该枝向外扇出 */
+    renderExpandInPlace(data, sz) {
+      const host = this.webHost;
+      const S = sz.S, H = sz.H;
+      let cnt = 0;
+      for (let bi = 0; bi < data.branches.length; bi++) cnt += data.branches[bi].leaves.length;
+      renderWebMap(host, { data: data, deco: clamp(1 - cnt / 14, 0.12, 1), S: S, H: H });
+      /* 淡出其它枝 */
+      const bEls = host.querySelectorAll('.pill.br');
+      const lEls = host.querySelectorAll('.pill[data-grp]');
+      const keepPill = host.querySelector('.pill[data-grp="' + this.webFocus.bi + '-' + this.webFocus.li + '"]');
+      for (let i = 0; i < bEls.length; i++) if (i !== this.webFocus.bi) bEls[i].style.opacity = '.2';
+      for (let i = 0; i < lEls.length; i++) if (lEls[i] !== keepPill) lEls[i].style.opacity = '.2';
+      const svgs = host.querySelectorAll('svg.websilk');
+      for (let i = 0; i < svgs.length; i++) svgs[i].style.opacity = '.35';
+      /* 从被点枝向外扇出 kids：以它的位置为基点，往画布外侧 */
+      const lf = this.focusNode(data);
+      const kids = lf.kids || [];
+      const base = keepPill ? {
+        x: parseFloat(keepPill.style.left), y: parseFloat(keepPill.style.top)
+      } : { x: S / 2, y: H / 2 };
+      const dir = base.x >= S / 2 ? 1 : -1;
+      const svg2 = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg2.setAttribute('width', S); svg2.setAttribute('height', H);
+      svg2.setAttribute('viewBox', '0 0 ' + S + ' ' + H);
+      svg2.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;overflow:visible;z-index:3';
+      host.appendChild(svg2);
+      for (let i = 0; i < kids.length; i++) {
+        const spread = (i - (kids.length - 1) / 2) * 40;
+        const x = Math.min(Math.max(base.x + dir * 92, 46), S - 46);
+        const y = Math.min(Math.max(base.y + spread, 14), H - 14);
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', 'M' + base.x + ',' + base.y + ' Q' + ((base.x + x) / 2) + ',' + ((base.y + y) / 2 - 10) + ' ' + x + ',' + y);
+        p.setAttribute('fill', 'none'); p.setAttribute('stroke', (WEB_TYPES[kids[i].ty] || WEB_TYPES.quote).c);
+        p.setAttribute('stroke-width', '1.6'); p.setAttribute('opacity', '.8'); svg2.appendChild(p);
+        const kp = this.makeKidPill(host, kids[i], x, y);
+        kp.el.style.zIndex = '7';
+      }
+      if (keepPill) keepPill.style.zIndex = '8';
+      const back = this.addBackPill(host, '‹ 全图');
+      back.onclick = () => this.webBack();
+    }
+
+    webBack() {
+      this.webFocus = null;
+      if (this.webHost) { this.webHost.innerHTML = ''; }
+      this.paintWeb();
+    }
+
     onWebClick(e) {
       /* 中心标题：开/关「大白话全文总结」卡 */
       const hub = e.target && e.target.closest ? e.target.closest('.pill.hub') : null;
       if (hub) {
         if (this.webCardSid === -2) { this.closeWebCard(); return; }
         this.openPlainCard(hub);
+        return;
+      }
+      /* 层级网的话题枝末端：点开进入展开视图（常态下钻 / 放大原地长分支） */
+      const grp = e.target && e.target.closest ? e.target.closest('.pill[data-grp]') : null;
+      if (grp && this.webData && this.webData.hier) {
+        const parts = String(grp.getAttribute('data-grp')).split('-');
+        this.webFocus = { bi: Number(parts[0]), li: Number(parts[1]) };
+        if (this.focusNode(this.webData)) this.paintWeb();
+        else this.webFocus = null;
         return;
       }
       const pill = e.target && e.target.closest ? e.target.closest('.pill[data-sid]') : null;
@@ -4514,10 +4829,73 @@
           if (this.pendingApi.length) {
             clearTimeout(this.apiTimer);
             this.apiTimer = setTimeout(() => this.flushApi(), 260);
+          } else {
+            /* 本批是最后一批：预约一次整篇层级归纳（空闲 3 秒后才发，避免边爬边烧额度） */
+            this.maybeStructure();
           }
         });
       } catch (e) {
         this.showAiBadge('调用失败：' + (e && e.message ? e.message : '未知错误'));
+      }
+    }
+
+    /* 爬取告一段落后，发一次「整篇层级归纳」：让 AI 自己分大块→话题枝→句子归属。
+       和边爬边出的单句摘要分开——那个是逐批的，这个要等看完全文才有意义。 */
+    maybeStructure() {
+      if (!this.aiOn() || this.structDone || this.structBusy) return;
+      let n = 0;
+      for (let i = 0; i < this.sentences.length; i++) if (this.sentences[i].web) n++;
+      if (n < 6) return;   // 太少不值得单独跑一次
+      clearTimeout(this.structTimer);
+      this.structTimer = setTimeout(() => this.runStructure(), 3000);
+    }
+
+    async runStructure() {
+      if (!this.aiOn() || this.structDone || this.structBusy || this.destroyed) return;
+      /* 按需调用：SW 空闲会被回收，先 PING 探活再发真请求（和大白话一套） */
+      const pingOk = await new Promise((resolve) => this.pingBackground((ok) => resolve(ok)));
+      if (!pingOk || this.destroyed) return;
+      this.structBusy = true;
+      const gen = this.webGen;
+      const payload = this.sentences
+        .filter((s) => s && s.text)
+        .map((s) => ({ id: s.id, text: s.text, hint: s.hint || '' }));
+      try {
+        const res = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: 'TLDR_STRUCTURE', sentences: payload }, (r) => {
+            if (chrome.runtime.lastError) { resolve({ ok: false, error: 'channel', detail: chrome.runtime.lastError.message }); return; }
+            resolve(r);
+          });
+        });
+        if (this.destroyed || gen !== this.webGen) return;   // 重启了：旧结果作废
+        if (!res || !res.ok || !res.structure || !Array.isArray(res.structure.blocks)) {
+          this.structBusy = false;
+          return;   // 归纳失败：静默降级到现有 h2/扁平网，不打扰用户
+        }
+        /* 挂回句子：一个句子只归一处 */
+        const place = {};
+        const blocks = res.structure.blocks;
+        for (let bi = 0; bi < blocks.length; bi++) {
+          const topics = blocks[bi].topics || [];
+          for (let ti = 0; ti < topics.length; ti++) {
+            const ids = topics[ti].ids || [];
+            for (let k = 0; k < ids.length; k++) {
+              place[String(ids[k])] = { block: blocks[bi].name, topic: topics[ti].name };
+            }
+          }
+        }
+        let matched = 0;
+        for (let i = 0; i < this.sentences.length; i++) {
+          const s = this.sentences[i];
+          const p = place[String(s.id)];
+          if (p) { s.struct = p; matched++; }
+        }
+        if (res.structure.topic && !this.webTopic) this.webTopic = String(res.structure.topic).trim();
+        this.structDone = true;
+        this.structBusy = false;
+        if (matched) this.rebuildWeb(120);
+      } catch (e) {
+        this.structBusy = false;
       }
     }
 
@@ -4695,6 +5073,14 @@
       this.webTopic = '';
       this.webChords = [];
       this.webHovered = null;
+      this.webFocus = null;               // 清网也退出展开/下钻视图，回到全图
+      this.webData = null;
+      clearTimeout(this.structTimer);
+      this.structTimer = 0;
+      this.structBusy = false;
+      this.structDone = false;            // 换新文章：允许重新归纳一次层级
+      this.structGen++;
+      for (let i = 0; i < this.sentences.length; i++) this.sentences[i].struct = null;
       this.lastWeaveAt = 0;               // 新一轮织网可以重新播动画
       this.firstWeaveDone = false;        // 清网后重新织，第一批又按「首次」走整体动画
       this.onWebSids = new Set();

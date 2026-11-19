@@ -95,6 +95,17 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     summarizeBatch(msg.sentences || []).then(sendResponse);
     return true; // 异步
   }
+  if (msg.type === 'TLDR_STRUCTURE') {
+    /* 整篇层级归纳：让模型看全文后自己分大块 + 细类，不写死类名。
+       独立调用，失败只影响层级网，摘要/大白话照旧。 */
+    Promise.resolve()
+      .then(function () { return structureArticle(msg.sentences || []); })
+      .then(function (r) { sendResponse(r); })
+      .catch(function (e) {
+        sendResponse({ ok: false, error: 'exception', detail: String((e && e.message) || e) });
+      });
+    return true;
+  }
   if (msg.type === 'TLDR_VERDICT') {
     verdict(msg.sentences || []).then(sendResponse);
     return true;
@@ -424,6 +435,107 @@ function parseStructured(text) {
     items: items,
     links: links
   };
+}
+
+/* -------------------------------------------------------------------------
+ * 整篇层级归纳：模型读完全文后，自己分成「大块 → 话题枝 → 句子归属」。
+ * 不写死分类名、不强制翻译专名——类名贴着原文内容来，才像这篇文章的结构。
+ * 和 summarizeBatch 完全独立：这里失败，摘要/大白话/扁平网都不受影响。
+ * ---------------------------------------------------------------------- */
+
+/* 把模型输出抠成 {blocks:[{name,topics:[{name,ids}]}]}，宽容各种小错 */
+function parseStructure(text, validIds) {
+  if (!text) return null;
+  let s = String(text).trim();
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) s = fence[1].trim();
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a === -1 || b <= a) return null;
+  let obj = null;
+  const body = s.slice(a, b + 1);
+  const tryParse = (str) => {
+    try { return JSON.parse(str); } catch (e) { return null; }
+  };
+  obj = tryParse(body)
+     || tryParse(body.replace(/,\s*([}\]])/g, '$1'))
+     || tryParse(body.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/,\s*([}\]])/g, '$1'));
+  if (!obj || !Array.isArray(obj.blocks)) return null;
+
+  const ok = {};
+  for (let i = 0; i < validIds.length; i++) ok[String(validIds[i])] = 1;
+  const numId = (v) => {
+    if (typeof v === 'number' && isFinite(v)) return v;
+    if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim());
+    return null;
+  };
+  const blocks = [];
+  const used = {};   // 一句话只归一个话题枝，防止模型重复挂
+  for (let i = 0; i < obj.blocks.length && blocks.length < 10; i++) {
+    const bl = obj.blocks[i];
+    if (!bl || !Array.isArray(bl.topics)) continue;
+    const bName = String(bl.name || '').replace(/\s+/g, ' ').trim().slice(0, 16) || ('部分 ' + (blocks.length + 1));
+    const topics = [];
+    for (let j = 0; j < bl.topics.length && topics.length < 8; j++) {
+      const tp = bl.topics[j];
+      if (!tp) continue;
+      const tName = String(tp.name || '').replace(/\s+/g, ' ').trim().slice(0, 10);
+      const ids = [];
+      const raw = tp.ids != null ? tp.ids : (tp.sents != null ? tp.sents : []);
+      if (Array.isArray(raw)) {
+        for (let k = 0; k < raw.length; k++) {
+          const id = numId(raw[k]);
+          if (id != null && ok[String(id)] && !used[String(id)]) {
+            used[String(id)] = 1;
+            ids.push(id);
+          }
+        }
+      }
+      if (!tName && !ids.length) continue;
+      topics.push({ name: tName || ('话题 ' + (topics.length + 1)), ids: ids });
+    }
+    if (topics.length) blocks.push({ name: bName, topics: topics });
+  }
+  if (!blocks.length) return null;
+  return {
+    topic: String(obj.topic || '').replace(/\s+/g, ' ').trim().slice(0, 18),
+    blocks: blocks
+  };
+}
+
+async function structureArticle(sentences) {
+  /* 整篇发给模型：上限放宽到 80 句（层级归纳要看全局），超出按原文顺序截断 */
+  const list = sentences
+    .map(function (s) {
+      const o = { id: s && s.id, text: String(s && s.text ? s.text : '').replace(/\s+/g, ' ').trim() };
+      const hint = String((s && s.hint) || '').replace(/\s+/g, ' ').trim();
+      if (hint) o.hint = hint.slice(0, 24);   // 采集层抓到的短标签（Talk 1: / Abstract: 等），帮模型认结构
+      return o;
+    })
+    .filter(function (s) { return s.text.length > 0; })
+    .slice(0, 80);
+  if (!list.length) return { ok: false, error: 'empty-input' };
+  const validIds = list.map(function (s) { return s.id; });
+
+  const prompt = [
+    '你在读一篇文章（或一封邮件）的要点。请把它的内容组织成一张层级图：先分成几个大块，每个大块下再分几个话题枝，每句话归到最合适的一个话题枝下。',
+    '硬性要求：',
+    '1. 大块要贴着内容的真实结构来分。若原文有清晰的并列单元（如 Talk 1 / Talk 2、第一节/第二节、几个不同的主题演讲），就按它们分大块；否则按内容主题自然地分成 2-5 块；',
+    '2. 话题枝的名字由你根据内容现场归纳，2-6 个字，贴切、具体（例：讲者背景 / 研究主题 / 时间地点 / 富营养化机理）。不要用「其他」「要点1」这种空壳名；不要把不同内容硬塞进同一个话题；',
+    '3. 每句话（用它的 id）只能归到一个话题枝下，不要重复；不必每句都归——不属于任何清晰话题的可以省略；',
+    '4. 大块和话题枝的名字保留原文里的专有名词、人名、机构名原写法（英文就英文），不要翻译、不要改写数字；',
+    '5. 只输出一个 JSON 对象，不要任何解释、不要 Markdown 代码块。形如：',
+    '{"topic":"…","blocks":[{"name":"大块名","topics":[{"name":"话题枝名","ids":[1,2,3]}]}]}',
+    '6. ids 里必须是输入里出现过的数字 id，原样返回，不要重新编号。',
+    '',
+    '要点（JSON 数组，hint 是原文里这句旁边的小标题/标签，仅供参考）：',
+    JSON.stringify(list, null, 0)
+  ].join('\n');
+
+  const r = await callModel(prompt, 4000);
+  if (!r.ok) return r;
+  const st = parseStructure(r.text, validIds);
+  if (!st) return { ok: false, error: 'unparsable', provider: r.provider, name: r.name };
+  return { ok: true, structure: st, provider: r.provider, name: r.name };
 }
 
 async function summarizeBatch(sentences) {

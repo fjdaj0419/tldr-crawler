@@ -4,12 +4,12 @@
 
 > A spider that crawls across the page as you read, highlights the key sentences, and weaves them into a TL;DR web with AI.
 
-[![version](https://img.shields.io/badge/version-2.3.6-brightgreen.svg)](manifest.json)
+[![version](https://img.shields.io/badge/version-2.5.0-brightgreen.svg)](manifest.json)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4.svg)](https://developer.chrome.com/docs/extensions/develop)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-A Chrome extension written in plain JavaScript with **zero third-party dependencies**. Click the toolbar icon and a spider starts crawling across the page from your cursor, highlighting key sentences one by one. Those sentences are handed to an LLM (DeepSeek or Claude), condensed into short Chinese takeaways, and attached in real time to a spider-web map that grows as you read. Click any node on the web to expand the original sentence or jump straight to it.
+A Chrome extension written in plain JavaScript with **zero third-party dependencies**. Click the toolbar icon and a spider starts crawling across the page from your cursor, highlighting key sentences one by one. Those sentences are handed to an LLM (DeepSeek or Claude), condensed into short Chinese takeaways, and attached in real time to a spider-web map that grows as you read. Click any node on the web to expand the original sentence or jump straight to it. The map also layers itself: the model reads the whole article and groups it into blocks and topics, so a mail with two seminar talks reads as two blocks instead of one flat heap of points.
 
 > **Note:** the extension UI and all AI-generated text are in Simplified Chinese.
 
@@ -33,6 +33,8 @@ Takeaways are not a flat list. They are grouped into branches by meaning and con
 
 - 🕷️ **Cursor-following spider** — canvas-drawn, procedural IK legs, metallic silver finish. Hovering a key sentence highlights it on the page.
 - 🕸️ **Living spider web** — each batch of AI results grows new nodes. White silk skeleton, colour only on the tips, denser decoration silk when the web is empty. A progressive weaving animation draws the silk outward and pops the capsules in.
+- 🪜 **Layered web** — the LLM reads the whole article and groups it into **blocks → topics → sentences**, naming each level from the content itself (no hard-coded categories, proper nouns kept in the original language). Two levels are shown at a time: click a topic capsule to drill into a focused view at normal width, or to grow the next layer in place in the enlarged view. An invitation mail with two talks ends up as two blocks instead of a flat pile of points.
+- 🧭 **Three-tier structure fallback** — AI grouping is used when available, HTML `h2`–`h4` headings when not, and a flat web as the last resort. A failed grouping call never empties the web.
 - 💬 **Keyword flight** — when the AI returns an item, a 2–6 character keyword travels along a Bézier silk thread from the source sentence to its capsule, rests above it for a moment, then fades out. If the model omits the keyword, a regex extractor takes over.
 - 📖 **Plain-language summary** — click the hub to have the captured sentences retold as one plain Chinese paragraph. Generated on demand and cached for the session.
 - 🧠 **Dual engines** — DeepSeek or Anthropic Claude, switchable in the options page with a built-in connection test.
@@ -63,7 +65,7 @@ Takeaways are not a flat list. They are grouped into branches by meaning and con
 1. (Optional) Open the extension options from the toolbar menu, paste an API key, pick an engine and test the connection.
 2. Open any long article and move the cursor. The spider crawls toward key sentences and highlights them in gold.
 3. The panel tracks `found / total` in real time; takeaways are attached to the web as the AI responds.
-4. Hover a web node to highlight its source sentence; click to open the detail card. Use **⤢** to enlarge the web and see up to 50 nodes.
+4. Hover a web node to highlight its source sentence; click to open the detail card. Capsules marked with **›** are topic branches — click one to drill into the next layer (at normal width) or grow it in place (in the enlarged view). Use **⤢** to enlarge the web and see up to 50 nodes.
 5. Click the hub (the centre label) to expand the plain-language summary. Move the pointer over the panel to make it translucent.
 
 ### Configure an API key
@@ -96,13 +98,19 @@ tldr-crawler/
 ```text
 discover → queueApi (batch of 12, 800 ms debounce) → background.summarizeBatch
         → parseStructured { topic, items[id, short, kw, branch, type], links }
-        → attach to sentences → paintWeb (group into branches) → renderWebMap (radial layout)
+        → attach to sentences → paintWeb → renderWebMap (radial layout)
         → spawnKeywords (fly new keywords into their capsules)
+
+(3 s after the last batch) background.structureArticle
+        → parseStructure { topic, blocks[name, topics[name, ids]] }
+        → attach s.struct = { block, topic } → rebuildWeb (layered tree)
 ```
 
 - The scanner collects text blocks (`p`, `li`, `blockquote`, `h2`–`h4`), and falls back to leaf `div` / `section` / `td` elements when it finds fewer than three standard blocks.
 - Sentences are split with DOM `Range`s, scored, and the top ~25% become key sentences.
+- Short label lines that fall under the 12-character sentence threshold (`Talk 1:`, `Abstract:`, `Speaker:`) are kept as a separate `hint` field on the next block, so the grouping call still sees the sectioning signal without disturbing the `Range` used for highlighting.
 - The spider discovers a sentence by physically walking over it; discovery highlights it, adds it to the list and queues it for the model.
+- Grouping runs once per session, three seconds after crawling goes idle. Its output takes priority over HTML headings; if it fails, the web silently falls back instead of emptying.
 - Structured parsing tolerates string numbers, re-numbered ids, ```` ```json ```` fences and common JSON mistakes (trailing commas, curly quotes, unquoted values).
 
 ## Development
@@ -121,6 +129,8 @@ The JavaScript uses no third-party libraries. Visual and interaction details are
 
 ## Changelog
 
+- **v2.5.0** — AI-driven hierarchy: once crawling goes idle, the whole article goes to the model, which groups it into blocks → topics → sentences with names of its own making (no hard-coded categories, proper nouns kept). Short label lines such as `Talk 1:` are preserved as hints so tag-structured mail stops losing its sectioning. Branch limits widened (24 points at normal width, up to 12 branches).
+- **v2.4.0** — layered web: first level from HTML `h2` headings, second from AI topic branches, sentences folded into the branch's `kids`. Drill-in focuses at normal width, in-place growth in the enlarged view.
 - **v2.3.6** — page support: fall back to leaf `div` / `section` / `td` when a page has no standard text blocks (mail clients, docs, admin panels).
 - **v2.3.5** — fix plain-language card buttons escaping the card (measure after filling content); slower, larger keyword flight with ease-in-out motion.
 - **v2.3.4** — the empty web now reports *why* the AI failed instead of spinning forever.
