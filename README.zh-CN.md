@@ -5,6 +5,8 @@
 > 一只会爬行的蜘蛛，跟随你的光标阅读网页，高亮关键句，并把要点织成一张 TL;DR 蛛网。
 
 [![version](https://img.shields.io/badge/version-2.5.0-brightgreen.svg)](manifest.json)
+[![CI](https://github.com/fjdaj0419/tldr-crawler/actions/workflows/ci.yml/badge.svg)](https://github.com/fjdaj0419/tldr-crawler/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/fjdaj0419/tldr-crawler?label=release)](https://github.com/fjdaj0419/tldr-crawler/releases/latest)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4.svg)](https://developer.chrome.com/docs/extensions/develop)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -46,6 +48,12 @@
 - 🔍 **原文列表兜底**：折叠区保留逐句原文与本地摘要，AI 不可用时仍可阅读。
 
 ## 安装
+
+### 从 Release 下载（不需要 git）
+
+1. 到 [Releases](https://github.com/fjdaj0419/tldr-crawler/releases/latest) 下载 `tldr-crawler-vX.Y.Z.zip`。
+2. 解压到一个固定的目录（Chrome 每次启动都从磁盘加载扩展，别放在临时目录）。
+3. 打开 `chrome://extensions`，开启**开发者模式**，点**加载已解压的扩展程序**，选中解压出来的目录。
 
 ### 从源码加载（开发者模式）
 
@@ -90,6 +98,8 @@ tldr-crawler/
 ├── icon16|48|128.png    # 工具栏与扩展图标
 ├── spider-body.png      # 蜘蛛身体素材（canvas 绘制参考）
 ├── screenshots/         # README 展示图
+├── CHANGELOG.md         # 完整版本历史
+├── .github/             # CI 工作流、Issue / PR 模板、仓库自检脚本
 └── LICENSE / CONTRIBUTING.md / .gitignore
 ```
 
@@ -129,23 +139,13 @@ JS 源码未使用任何第三方库；蛛网视觉与交互细节见 `screensho
 
 ## 更新日志
 
+完整历史见 [CHANGELOG.md](CHANGELOG.md)，以下是最近的几条：
+
 - **v2.5.0** — AI 动态层级归纳：爬取空闲后把全文交给模型，由它归纳出「大块 → 话题枝 → 句子」，类名现场起、不写死、专有名词保留原文。短标签（`Talk 1:` 这类）作为 `hint` 保留，靠标签分节的邮件不再丢结构。分支上限放宽（普通态 24 点、最多 12 枝）。
 - **v2.4.0** — 层级蛛网：第一层取 HTML `h2` 子部分，第二层取 AI 话题枝，句子收进 `kids`；常态聚焦下钻、放大态原地长分支。
 - **v2.3.6** — 页面兼容：页面没有标准文本块时退回到「叶子 `div` / `section` / `td`」（邮件、文档、后台系统）。
-- **v2.3.5** — 修大白话卡按钮跑出框（改为填完内容再量高度）；飞词放慢、字号加大、缓动改为缓入缓出。
-- **v2.3.4** — 空网不再装死，直接显示 AI 失败的真实原因。
-- **v2.3.3** — 修「网全空」回归：改写 `kw` 提示措辞、增加 JSON 宽松修复、`max_tokens` 提到 4000。
-- **v2.3.2** — 关键词飞入：关键词沿蛛丝从原文飞向胶囊。
-- **v2.3.1** — 渐进织网动画（丝从中心抽出、胶囊由内而外弹出）。
-- **v2.3.0** — 按需调用前先 PING 唤醒 Service Worker，扛住冷启动。
-- **v2.2.9** — 大白话通道失败时显示真实错误。
-- **v2.2.8** — 全文大白话总结。
-- **v2.2.7 / v2.2.6 / v2.2.5** — 悬停半透明，档位定稿 0.81。
-- **v2.2.4** — 要点上限提到 50，要点多时自动放大面板。
-- **v2.2.3** — 面板放大、chrome 中性灰化、细丝提亮。
-- **v2.2.2** — 节点详情卡。
-- **v2.2.1** — 修字符串 id、列表被压扁、强制中文输出。
-- **v2.2.0** — 蛛网图谱落地。
+
+v2.3.6 之前的版本——关键词飞入、大白话总结、悬停半透明、详情卡、最初的蛛网图谱——都记录在 [CHANGELOG.md](CHANGELOG.md) 里。
 
 ## 贡献
 

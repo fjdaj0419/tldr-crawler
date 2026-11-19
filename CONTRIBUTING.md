@@ -14,6 +14,24 @@
 4. 保持代码风格与现有文件一致；视觉改动请遵循既有规范：面板 chrome 一律中性灰，颜色只出现在蛛网图谱内部。
 5. 提交 PR，说明改了什么、为什么改、怎么验证的。
 
+## 本地自检
+
+提交前在仓库根目录跑一次：
+
+```bash
+node .github/scripts/check.mjs
+```
+
+它会校验：`manifest.json` 结构与引用文件是否存在、两份 README 的版本徽章与 `manifest.json` 是否一致、`CHANGELOG.md` 是否有当前版本小节、JS 源码能否通过语法编译。CI 跑的是同一个脚本，所以本地通过基本就等于 CI 通过。
+
+## 发布新版本
+
+1. 改 `manifest.json` 的 `version`。
+2. 同步两份 README 的版本徽章，并在 `CHANGELOG.md` 顶部新增 `## [x.y.z] - YYYY-MM-DD` 小节——上面三处对不上，CI 会直接失败。
+3. 跑一次 `node .github/scripts/check.mjs` 确认全绿。
+4. 打 tag 并推送：`git tag vX.Y.Z && git push origin vX.Y.Z`。
+5. 在 GitHub Releases 用该 tag 建 release，附上一个 `tldr-crawler-vX.Y.Z.zip`（扩展根目录的干净打包，不要带 `.git`、演示文件、截图）。
+
 ## 行为准则
 
 友善交流，就事论事。

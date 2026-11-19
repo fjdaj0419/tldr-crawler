@@ -5,6 +5,8 @@
 > A spider that crawls across the page as you read, highlights the key sentences, and weaves them into a TL;DR web with AI.
 
 [![version](https://img.shields.io/badge/version-2.5.0-brightgreen.svg)](manifest.json)
+[![CI](https://github.com/fjdaj0419/tldr-crawler/actions/workflows/ci.yml/badge.svg)](https://github.com/fjdaj0419/tldr-crawler/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/fjdaj0419/tldr-crawler?label=release)](https://github.com/fjdaj0419/tldr-crawler/releases/latest)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4.svg)](https://developer.chrome.com/docs/extensions/develop)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -46,6 +48,12 @@ Takeaways are not a flat list. They are grouped into branches by meaning and con
 - 🔍 **Fallback list** — a collapsible list keeps every captured sentence with a local summary, readable even without an API key.
 
 ## Install
+
+### From a release (no git required)
+
+1. Download `tldr-crawler-vX.Y.Z.zip` from [Releases](https://github.com/fjdaj0419/tldr-crawler/releases/latest).
+2. Unzip it to a folder you will keep (Chrome loads the extension from disk on every start).
+3. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and select that folder.
 
 ### From source (developer mode)
 
@@ -90,6 +98,8 @@ tldr-crawler/
 ├── icon16|48|128.png    # Toolbar and extension icons
 ├── spider-body.png      # Spider body asset (drawing reference)
 ├── screenshots/         # README images
+├── CHANGELOG.md         # Full version history
+├── .github/             # CI workflow, issue / PR templates, repository checks
 └── LICENSE / CONTRIBUTING.md / .gitignore
 ```
 
@@ -129,23 +139,13 @@ The JavaScript uses no third-party libraries. Visual and interaction details are
 
 ## Changelog
 
+The complete history lives in [CHANGELOG.md](CHANGELOG.md). Recent highlights:
+
 - **v2.5.0** — AI-driven hierarchy: once crawling goes idle, the whole article goes to the model, which groups it into blocks → topics → sentences with names of its own making (no hard-coded categories, proper nouns kept). Short label lines such as `Talk 1:` are preserved as hints so tag-structured mail stops losing its sectioning. Branch limits widened (24 points at normal width, up to 12 branches).
 - **v2.4.0** — layered web: first level from HTML `h2` headings, second from AI topic branches, sentences folded into the branch's `kids`. Drill-in focuses at normal width, in-place growth in the enlarged view.
 - **v2.3.6** — page support: fall back to leaf `div` / `section` / `td` when a page has no standard text blocks (mail clients, docs, admin panels).
-- **v2.3.5** — fix plain-language card buttons escaping the card (measure after filling content); slower, larger keyword flight with ease-in-out motion.
-- **v2.3.4** — the empty web now reports *why* the AI failed instead of spinning forever.
-- **v2.3.3** — fix the "empty web" regression: reword the `kw` prompt instruction, add tolerant JSON repair, raise `max_tokens` to 4000.
-- **v2.3.2** — keyword flight: keywords travel along silk threads from the source sentence to their capsules.
-- **v2.3.1** — progressive weaving animation (silk drawn outward, capsules popped in).
-- **v2.3.0** — ping the service worker before on-demand calls to survive cold starts.
-- **v2.2.9** — surface real errors when the plain-language channel fails.
-- **v2.2.8** — plain-language summary of the whole article.
-- **v2.2.7 / v2.2.6 / v2.2.5** — hover transparency, finalised at 0.81 opacity.
-- **v2.2.4** — raise the limit to 50 points, enlarge the panel automatically when there are many.
-- **v2.2.3** — panel zoom, neutral-grey chrome, brighter silk.
-- **v2.2.2** — node detail cards.
-- **v2.2.1** — fix string ids, collapsed list, force Chinese output.
-- **v2.2.0** — the spider-web map lands.
+
+Everything before v2.3.6 — keyword flight, plain-language summary, hover transparency, detail cards, the original web map — is listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 

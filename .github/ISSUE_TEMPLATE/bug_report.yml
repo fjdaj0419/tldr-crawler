@@ -1,0 +1,95 @@
+name: Bug report
+description: Something is broken — the web stays empty, scanning fails, or the panel misbehaves.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Two details decide most bugs in this project, so please fill them in accurately:
+        the **version shown in the panel header** and **whether you reloaded both the extension and the page**.
+
+        Before filing, please check the Troubleshooting table in the README.
+
+  - type: input
+    id: panel-version
+    attributes:
+      label: Version shown in the panel header
+      description: The small `vX.Y.Z` label in the top-right corner of the panel. If it does not match the version on `chrome://extensions`, the build is stale — reload the extension and the page first.
+      placeholder: v2.5.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reloaded
+    attributes:
+      label: Did you reload both the extension and the page?
+      description: Reload the extension on `chrome://extensions` (↻), then reload the page so the old content script is replaced.
+      options:
+        - "Yes — reloaded both, version in the panel is the current one"
+        - "Reloaded the extension only"
+        - "Reloaded the page only"
+        - "No — not sure how"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What happens?
+      options:
+        - The web stays empty (list has items, no nodes)
+        - Panel shows 0 / 0 and the list is empty
+        - Nodes appear but grouping / branches look wrong
+        - A node cannot be expanded or clicked
+        - The AI call fails with an error message
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the page URL or the kind of page (article, mail client, docs, admin panel). If the page is private, describe its structure instead.
+      placeholder: |
+        1. Open ...
+        2. Click the toolbar icon
+        3. Move the cursor over ...
+        4. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine configured in the options page
+      options:
+        - DeepSeek
+        - Claude
+        - No API key configured
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Chrome version and operating system
+      placeholder: Chrome 141.0.7390.55 / macOS 15.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshot or error text
+      description: Drag an image in, or paste any error message the panel printed (invalid key, insufficient balance, malformed response…).
+    validations:
+      required: false

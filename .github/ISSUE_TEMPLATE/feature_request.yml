@@ -1,0 +1,60 @@
+name: Feature request
+description: Suggest a new capability or a better way of doing something.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome. The most useful requests describe the **problem**, not just the solution —
+        there is often a simpler fix than the one that first comes to mind.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation where the extension falls short today.
+      placeholder: On long mail threads the web ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+      description: Including "do nothing" — sometimes the existing behaviour is intentional.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which part does this touch?
+      options:
+        - The spider (movement, visual style)
+        - The web map (layout, grouping, interaction)
+        - Scanning (which pages / blocks are read)
+        - The AI layer (prompt, models, cost)
+        - Options page / configuration
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pr
+    attributes:
+      label: Would you be willing to open a pull request?
+      options:
+        - "Yes"
+        - "Maybe, with guidance"
+        - "No — just suggesting"
+    validations:
+      required: false
